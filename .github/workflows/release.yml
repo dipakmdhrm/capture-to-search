@@ -81,7 +81,15 @@ jobs:
       - name: Install tools
         if: steps.gate.outputs.enabled == 'true'
         run: |
-          sudo apt-get update
+          # ports.ubuntu.com and archive.ubuntu.com occasionally serve a
+          # half-synced index, which makes apt-get update exit 100. That took
+          # down a release once, on one architecture, for reasons entirely
+          # unrelated to the code being built. Retry before giving up.
+          for attempt in 1 2 3; do
+            sudo apt-get update -o Acquire::Retries=3 && break
+            echo "apt-get update failed (attempt ${attempt}/3); retrying"
+            sleep 15
+          done
           sudo apt-get install -y --no-install-recommends reprepro
 
       - name: Import GPG signing key
