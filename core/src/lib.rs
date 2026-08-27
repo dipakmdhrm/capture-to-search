@@ -63,8 +63,14 @@ mod packaging_tests {
         "packaging/arch/PKGBUILD",
         "packaging/arch/capture-to-search.install",
         "packaging/build-local.sh",
+        "packaging/stage-tree.sh",
+        "packaging/source-tarball.sh",
         "install.sh",
         "uninstall.sh",
+        ".github/workflows/ci.yml",
+        ".github/workflows/build-packages.yml",
+        ".github/workflows/release.yml",
+        ".github/workflows/auto-release.yml",
     ];
 
     #[test]
@@ -94,7 +100,7 @@ mod packaging_tests {
         for file in [
             "packaging/rpm/capture-to-search.spec",
             "packaging/arch/PKGBUILD",
-            "packaging/build-local.sh",
+            "packaging/stage-tree.sh",
             "install.sh",
             "uninstall.sh",
         ] {
@@ -193,12 +199,66 @@ mod packaging_tests {
         for file in [
             "packaging/rpm/capture-to-search.spec",
             "packaging/arch/PKGBUILD",
-            "packaging/build-local.sh",
+            "packaging/stage-tree.sh",
             "install.sh",
         ] {
             assert!(
                 read(file).contains("-symbolic.svg"),
                 "{file} does not handle the symbolic tray icon"
+            );
+        }
+    }
+
+    #[test]
+    fn ci_runs_the_checks_the_contributor_guide_mandates() {
+        // CLAUDE.md tells contributors to run these three before opening a PR.
+        // If CI silently stops running one, the documented process and the
+        // enforced process drift apart, and the gap only shows up as a
+        // regression that everyone assumed was covered.
+        let ci = read(".github/workflows/ci.yml");
+        for check in [
+            "cargo fmt --all -- --check",
+            "cargo clippy --workspace --all-targets -- -D warnings",
+            "cargo test --workspace",
+        ] {
+            assert!(ci.contains(check), "CI does not run `{check}`");
+        }
+    }
+
+    #[test]
+    fn every_package_is_built_on_every_pull_request() {
+        // A tag build should be a repeat of something already validated, not
+        // the first time anyone tried to build a package. CI reaches the
+        // packages through the same reusable workflow the release uses.
+        let ci = read(".github/workflows/ci.yml");
+        assert!(
+            ci.contains("uses: ./.github/workflows/build-packages.yml"),
+            "CI does not build the packages on pull requests"
+        );
+        let release = read(".github/workflows/release.yml");
+        assert!(
+            release.contains("uses: ./.github/workflows/build-packages.yml"),
+            "the release must reuse the workflow CI validated, not its own copy"
+        );
+
+        let build = read(".github/workflows/build-packages.yml");
+        for job in ["build-deb:", "build-rpm:", "build-arch:"] {
+            assert!(build.contains(job), "build-packages.yml is missing {job}");
+        }
+    }
+
+    #[test]
+    fn ci_and_local_builds_share_their_packaging_scripts() {
+        // The one bug that has already happened twice here: a file staged by
+        // one build path and forgotten by the other. Both must go through the
+        // shared scripts rather than keeping private copies of the layout.
+        let build = read(".github/workflows/build-packages.yml");
+        let local = read("packaging/build-local.sh");
+        for script in ["stage-tree.sh", "source-tarball.sh"] {
+            assert!(build.contains(script), "CI does not use packaging/{script}");
+            assert!(
+                local.contains(script),
+                "build-local.sh does not use packaging/{script}"
             );
         }
     }

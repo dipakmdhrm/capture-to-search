@@ -37,6 +37,9 @@ replaced and re-execs onto the new version within a few seconds.
 ./uninstall.sh
 ```
 
+Every pull request builds all three packages, installs each one, and runs the
+daemon from it, so a release is a repeat of an already-validated build.
+
 ### Building the packages yourself
 
 ```bash

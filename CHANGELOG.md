@@ -27,7 +27,14 @@ pre-release (`0.1.0`).
   builds only, so a development rebuild does not bounce a daemon being
   debugged.
 
-- The test suite is now **103 tests**, adding coverage for the binary-signature
+- **Continuous integration and automated releases.** Every pull request runs
+  formatting, lint and the test suite, then builds the `.deb`, `.rpm` and Arch
+  packages and installs each one to confirm it works. Merging to main bumps the
+  version, stamps the changelog, tags, and publishes a GitHub Release with all
+  three packages attached; the bump is taken from a `release:*` label on the
+  merged pull request and defaults to a patch.
+
+- The test suite is now **106 tests**, adding coverage for the binary-signature
   check behind the upgrade restart and for drift between the app and its
   packaging - a rename that reaches the code but not the package definitions
   produces a package that installs cleanly and then does nothing.

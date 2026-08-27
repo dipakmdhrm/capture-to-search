@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: fmt + clippy + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only the GUI crate needs these; the daemon links no GUI toolkit. They
+      # are installed anyway because `--workspace` builds the GUI too.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libadwaita-1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # The suite needs no display, D-Bus session, network, or writable XDG
+      # directory, so a bare runner is enough.
+      - name: Tests
+        run: cargo test --workspace
+
+  # Build every package on each PR, so a release tag is a repeat of an
+  # already-validated build rather than the first time anyone tried. Uses the
+  # same reusable workflow the release pipeline calls. Gated on `check` so a
+  # failing lint does not burn three container builds.
+  packages:
+    name: packages
+    needs: check
+    uses: ./.github/workflows/build-packages.yml
+    with:
+      version: 0.0.0

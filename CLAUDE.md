@@ -27,8 +27,8 @@ pull request, so lint and tests run against the change before it merges.
    when everything is green and all review comments are addressed. Stop when the
    PR is ready and report its URL.
 
-There is no CI in this repo yet, so nothing runs these checks for you. Before
-opening a PR, run them locally and report the results:
+CI runs these on every pull request, but run them locally before opening one
+and report the results - a red PR wastes a review cycle:
 
 ```bash
 cargo fmt --check
@@ -234,6 +234,46 @@ respawning is cheap and a resident GTK process would dominate an idle tray app's
 footprint. A reaper task clears `window`/`window_alive`/`window_kill` and fires
 `window_gone`, which `flow::dismiss_window` waits on. `gui_path()` returning
 `None` is a supported state, not an error: the tray just omits its window entry.
+
+## CI and releases
+
+Four workflows in `.github/workflows`:
+
+- **`ci.yml`** - on every PR: `fmt`, `clippy -D warnings`, `cargo test
+  --workspace`, then every package build. The package job is gated on the check
+  job so a failing lint does not burn three container builds.
+- **`build-packages.yml`** - reusable, called by both CI and the release. Builds
+  the `.deb` (amd64, arm64), `.rpm` (x86_64, aarch64) and Arch package, and
+  **installs each one and runs `capture-to-searchd --version`** before uploading
+  it. Because CI and the release call the same workflow, a tag build repeats an
+  already-validated build rather than trying for the first time.
+- **`release.yml`** - on a `v*` tag push, or called by auto-release. Builds the
+  packages and attaches them to a GitHub Release.
+- **`auto-release.yml`** - on merge to main: picks the bump from the merged PR's
+  `release:*` label (default patch), computes the next version from the newest
+  `v*` tag, rewrites `[workspace.package] version`, syncs `Cargo.lock`, stamps
+  `CHANGELOG.md` (`## Unreleased` becomes the version, a fresh empty one is left
+  on top), commits, tags, pushes, then calls `release.yml`.
+
+Things to know before editing these:
+
+- **Label a PR `release:skip`** to merge without cutting a release;
+  `release:minor` / `release:major` change the bump.
+- A merge touching only `.github/` or `*.md` does **not** release - there is
+  nothing user-facing to ship. An explicit `release:major`/`release:minor` label
+  overrides that.
+- **No release loop**: the bump commit and tag are pushed with the default
+  `GITHUB_TOKEN`, and pushes made with that token do not trigger workflows. That
+  is also why `auto-release.yml` invokes `release.yml` via `workflow_call`
+  instead of relying on its `push: tags` trigger, which the token-pushed tag
+  would never fire.
+- **`packaging/stage-tree.sh` and `packaging/source-tarball.sh` are shared** by
+  `build-local.sh` and CI, deliberately. A private copy of the file layout in
+  either place is how an asset ends up in one package and not the other; that
+  has already happened once with the symbolic tray icon. Tests assert both paths
+  use the scripts.
+- Lint workflow changes before pushing - GitHub is the only other place they
+  run: `docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest`.
 
 ## Packaging
 
