@@ -6,6 +6,8 @@ pre-release (`0.1.0`).
 
 ## Unreleased
 
+## 0.1.1
+
 ### Added
 
 - **Packages for Debian/Ubuntu, Fedora and Arch.** A single package per format
