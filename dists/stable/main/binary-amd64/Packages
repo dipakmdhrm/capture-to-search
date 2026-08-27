@@ -1,0 +1,29 @@
+Package: capture-to-search
+Version: 0.1.1
+Architecture: amd64
+Depends: libgtk-4-1, libadwaita-1-0, curl, gnupg
+Recommends: xdg-desktop-portal, xdg-utils
+Suggests: gnome-screenshot, grim, slurp, spectacle, flameshot, maim, scrot
+Maintainer: dipakmdhrm <dipakmdhrm@gmail.com>
+Homepage: https://github.com/dipakmdhrm/capture-to-search
+Priority: optional
+Section: graphics
+Filename: pool/main/c/capture-to-search/capture-to-search_0.1.1_amd64.deb
+Size: 4137786
+SHA256: 10f0bfc5b0b0f8770827c510f5dd107ef65512c230c9a202d973e12f1ebed2cc
+SHA1: 2f18fe04b816ae5097a6ed09f17102bd8d4d675b
+MD5sum: 103e3676a3dfb73a68add49364186575
+Description: Search any part of your screen with Google Lens
+ Capture to Search sits in the system tray. Press Capture, drag out a region of
+ the screen, and your browser opens on the Google Lens results for whatever you
+ selected.
+ .
+ A small resident daemon (capture-to-searchd) owns the tray icon and the capture
+ pipeline; the GTK4 window (capture-to-search-gui) is spawned on demand and
+ closed again, so almost nothing stays resident while the app waits in the tray.
+ .
+ Capture works on Wayland and X11: the XDG screenshot portal is tried first,
+ then grim, spectacle, gnome-screenshot and other tools as fallbacks. Install at
+ least one of the suggested packages, or xdg-desktop-portal with a backend for
+ your desktop.
+

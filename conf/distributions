@@ -1,0 +1,6 @@
+Origin: Capture to Search
+Label: Capture to Search
+Codename: stable
+Architectures: amd64 arm64
+Components: main
+Description: Capture to Search APT repository

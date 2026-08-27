@@ -1,0 +1,5 @@
+Component: main
+Origin: Capture to Search
+Label: Capture to Search
+Architecture: amd64
+Description: Capture to Search APT repository

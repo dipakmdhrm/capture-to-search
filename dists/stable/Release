@@ -1,0 +1,28 @@
+Origin: Capture to Search
+Label: Capture to Search
+Codename: stable
+Date: Thu, 27 Aug 2026 09:05:17 UTC
+Architectures: amd64 arm64
+Components: main
+Description: Capture to Search APT repository
+MD5Sum:
+ 4341ff9960b8d62e3193dc7faac684d8 1347 main/binary-amd64/Packages
+ 0891c16783b2334087204de3e3eac64e 794 main/binary-amd64/Packages.gz
+ d5f8d3374272a5d0c19c487d85ecf9af 133 main/binary-amd64/Release
+ 935c5627cc259b00ab1c9b0e53717656 1347 main/binary-arm64/Packages
+ 298ccf49f860647aa17c828837c08793 795 main/binary-arm64/Packages.gz
+ e059208137ad652c4d0fa2ade58d356b 133 main/binary-arm64/Release
+SHA1:
+ 05096980cbece421d69ab2a19e843fbcd5f44b61 1347 main/binary-amd64/Packages
+ 2e501c31c1e6218b57ea8a0add41d9350fb25a90 794 main/binary-amd64/Packages.gz
+ 7709f5146d3b582c0be44b16d641dcaf4dfcfbc1 133 main/binary-amd64/Release
+ d139679d33b91462ef7af4718552da0a7dfb297a 1347 main/binary-arm64/Packages
+ 287d4812af31e587a472dd2ec7b3a404c1264598 795 main/binary-arm64/Packages.gz
+ a6b305d45c778853ee98bf1bba551ac6a77f1748 133 main/binary-arm64/Release
+SHA256:
+ 4002cf9a74267b07361eefda9747fb3e9cfe92c5c0fa308186ca35a77582b838 1347 main/binary-amd64/Packages
+ 915bd4d53539d08651ffa6f80f0c6d37eb689b587747e1d37aa9651bf5b80cf6 794 main/binary-amd64/Packages.gz
+ 3ad72ff451e3266a806a2d693d737d8e5059631ca0388bc31be9898688bf2798 133 main/binary-amd64/Release
+ 887d144f2f51153fb3a64fc987bfda46e754e71588088bbe1b4f045db1ad129a 1347 main/binary-arm64/Packages
+ c59b5afcff6467de5dee26ed56f9b137770fa3204e0449be610f3d6bb32cba1f 795 main/binary-arm64/Packages.gz
+ b2b9c888f84ced74b4b8c6b3760f3b092f8d0fb7e6ac8d874b47aacd1873ea69 133 main/binary-arm64/Release
