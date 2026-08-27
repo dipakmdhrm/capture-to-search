@@ -31,10 +31,18 @@ CI runs these on every pull request, but run them locally before opening one
 and report the results - a red PR wastes a review cycle:
 
 ```bash
+rustup update stable   # see below - CI uses the latest stable
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
+
+**Update the toolchain first.** CI installs the latest stable, so an older local
+toolchain runs an older clippy and can report clean on code CI rejects. That has
+already happened once: clippy 1.98 added `chunks_exact_to_as_chunks`, which
+1.97 did not have, so a locally green branch failed in CI. If you would rather
+this could not happen at all, pin the toolchain with a `rust-toolchain.toml`
+and bump it deliberately.
 
 **One PR per prompt:** create exactly one pull request per user request, even
 when the work is large. Use multiple commits on the same branch for

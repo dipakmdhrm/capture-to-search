@@ -235,7 +235,7 @@ fn decode_png_argb(bytes: &[u8]) -> Option<Icon> {
 /// RGBA8 -> ARGB32 network byte order (bytes `[A, R, G, B]` per pixel).
 fn rgba_to_argb(rgba: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(rgba.len());
-    for px in rgba.chunks_exact(4) {
+    for px in rgba.as_chunks::<4>().0 {
         out.extend_from_slice(&[px[3], px[0], px[1], px[2]]);
     }
     out
@@ -244,7 +244,7 @@ fn rgba_to_argb(rgba: &[u8]) -> Vec<u8> {
 /// RGB8 -> ARGB32 network byte order, fully opaque.
 fn rgb_to_argb(rgb: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(rgb.len() / 3 * 4);
-    for px in rgb.chunks_exact(3) {
+    for px in rgb.as_chunks::<3>().0 {
         out.extend_from_slice(&[0xff, px[0], px[1], px[2]]);
     }
     out
@@ -332,7 +332,7 @@ mod tests {
         let icons = app_icons();
         let any_transparent = icons
             .iter()
-            .any(|i| i.data.chunks_exact(4).any(|px| px[0] != 0xff));
+            .any(|i| i.data.as_chunks::<4>().0.iter().any(|px| px[0] != 0xff));
         assert!(any_transparent, "tray icon should have an alpha channel");
     }
 }
