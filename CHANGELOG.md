@@ -4,6 +4,46 @@ All notable changes to Capture to Search are documented here. The format
 loosely follows [Keep a Changelog](https://keepachangelog.com/). The project is
 pre-release (`0.1.0`).
 
+## Unreleased
+
+### Added
+
+- **Packages for Debian/Ubuntu, Fedora and Arch.** A single package per format
+  installs both binaries, the icons, the desktop entry and the AppStream
+  metainfo, and removing it also clears the per-user autostart entry that only
+  packaging can reach. `packaging/build-local.sh` builds all three without CI:
+  the `.deb` natively, the `.rpm` and Arch package inside `fedora` and
+  `archlinux` containers, with output in `dist/`.
+
+- **Install without root.** `install.sh` and `uninstall.sh` place everything
+  under `~/.local`, and install the window only if it was built, so a host
+  without GTK still gets a working tray and hotkey.
+
+- **Upgrades no longer interrupt the tray.** A package upgrade replaces the
+  daemon binary underneath the running process, which would otherwise keep
+  executing the old code until the next login. The daemon now notices its
+  binary changed and re-execs onto the new version a few seconds later, so the
+  tray icon stays put and the new version takes effect immediately. Release
+  builds only, so a development rebuild does not bounce a daemon being
+  debugged.
+
+- The test suite is now **103 tests**, adding coverage for the binary-signature
+  check behind the upgrade restart and for drift between the app and its
+  packaging - a rename that reaches the code but not the package definitions
+  produces a package that installs cleanly and then does nothing.
+
+### Known issues
+
+- **The packages depend on GTK 4.14 and libadwaita 1.5**, because a single
+  package ships both binaries. They therefore do not install on Debian 12 or
+  Ubuntu 22.04, even though the daemon itself links neither library.
+
+- **There is still no Flatpak package.** Beyond the autostart limitation noted
+  under 0.1.0, the staged upload page lives in the sandbox's runtime directory,
+  which the host browser cannot read; it may survive the OpenURI portal's
+  document-portal re-export, but that is unverified. Inside a sandbox only the
+  portal capture backend is reachable.
+
 ## 0.1.0
 
 Initial implementation: a tray-resident daemon that captures a region of the

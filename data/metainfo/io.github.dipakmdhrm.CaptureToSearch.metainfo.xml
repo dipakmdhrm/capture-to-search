@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.dipakmdhrm.CaptureToSearch</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Capture to Search</name>
+  <summary>Search any part of your screen with Google Lens</summary>
+
+  <description>
+    <p>
+      Capture to Search lives in your system tray. Press Capture, drag out a
+      region of the screen, and your browser opens on the Google Lens results
+      for whatever you selected.
+    </p>
+    <p>
+      A small resident daemon owns the tray icon and the capture; the window is
+      spawned on demand and closed again, so almost nothing stays in memory
+      while the app waits in the tray.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Region or full-screen capture, on both Wayland and X11</li>
+      <li>Works across desktops: the XDG screenshot portal first, then grim, spectacle, gnome-screenshot, and other tools as fallbacks</li>
+      <li>A command-line capture you can bind to a keyboard shortcut in your desktop settings</li>
+      <li>A doctor command that reports which capture backend was chosen and why every other one was rejected</li>
+      <li>Optional launch at login</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.dipakmdhrm.CaptureToSearch.desktop</launchable>
+
+  <url type="homepage">https://github.com/dipakmdhrm/capture-to-search</url>
+  <url type="bugtracker">https://github.com/dipakmdhrm/capture-to-search/issues</url>
+
+  <developer id="io.github.dipakmdhrm">
+    <name>dipakmdhrm</name>
+  </developer>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-08-27">
+      <description>
+        <p>Initial release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

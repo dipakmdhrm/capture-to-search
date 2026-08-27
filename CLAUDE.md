@@ -235,6 +235,56 @@ footprint. A reaper task clears `window`/`window_alive`/`window_kill` and fires
 `window_gone`, which `flow::dismiss_window` waits on. `gui_path()` returning
 `None` is a supported state, not an error: the tray just omits its window entry.
 
+## Packaging
+
+`packaging/` holds one definition per format - `deb/` (control template plus
+maintainer scripts), `rpm/` (a single spec), `arch/` (PKGBUILD plus install
+hooks) - and `build-local.sh`, which builds all three without CI: deb natively
+via `dpkg-deb`, rpm and arch inside `fedora`/`archlinux` docker containers.
+Output goes to `dist/`. Flatpak is not packaged yet; see the notes below.
+
+A **single package** ships both binaries, so it depends on GTK4 and libadwaita
+even though the daemon itself links neither. That is a deliberate choice: it
+keeps packaging simple at the cost of excluding hosts without libadwaita 1.5.
+The crate split still matters for `cargo build` and for `install.sh`, which
+installs the GUI only if it was built.
+
+Things that will bite you here:
+
+- **The version is templated as `@VERSION@`** in all three formats and
+  substituted at build time from the workspace `Cargo.toml`. A test asserts the
+  files never hardcode it, because nothing else would notice a stale version.
+- **Arch must unset `RUSTFLAGS`/`CFLAGS`/`LDFLAGS`.** makepkg's hardening flags
+  garbage-collect `ring`'s static asm objects at link time (`undefined symbol:
+  ring_core_*`); `ring` reaches us through rustls. The PKGBUILD documents this.
+- **Maintainer scripts must not kill the daemon on upgrade** - only on removal.
+  See the self-update invariant below. There is a test for this.
+- **Removal cleans up `~/.config/autostart/capture-to-search.desktop`** for every
+  user, since the app writes it per-user and only packaging can remove it.
+  Tested.
+- `packaging_tests` in `core/src/lib.rs` pins binary names, the app id, package
+  names, and the above rules against the packaging files. It exists because a
+  rename in the app produces a package that installs cleanly and then does
+  nothing.
+
+**Flatpak is deliberately not packaged yet.** Two blockers, both specific to
+this app: the staged `file://` upload page lives in the sandbox's runtime dir,
+which the host browser cannot read (it may survive the OpenURI portal's
+document-portal re-export, but that is unverified), and autostart needs the
+Background portal, which `core/src/autostart.rs` currently rejects with an
+explicit error. Inside a sandbox only the portal capture backend is reachable.
+
+### Self-update
+
+`daemon/src/self_update.rs` polls the daemon's own binary and, when a package
+upgrade replaces it, re-execs onto the new image. This is why the maintainer
+scripts leave a running daemon alone on upgrade - without it the tray icon
+would disappear until the next login. Release builds only, so a dev rebuild does
+not bounce a daemon you are debugging. `main` performs the handoff after the
+socket, tray, and window are torn down, with a one-second pause so the SNI
+watcher processes the deregistration before the same PID re-registers the same
+well-known name.
+
 ## Conventions
 
 - **Doc comments explain why, not what.** Module headers carry the reasoning

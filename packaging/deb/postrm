@@ -1,0 +1,16 @@
+#!/bin/bash
+set -e
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    # Remove autostart entries the app may have created for any user. The app
+    # writes these per-user, so packaging is the only place that can clean them
+    # up on removal.
+    for home_dir in /home/*; do
+        rm -f "$home_dir/.config/autostart/capture-to-search.desktop" 2>/dev/null || true
+    done
+
+    update-desktop-database /usr/share/applications 2>/dev/null || true
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+fi
+
+exit 0

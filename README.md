@@ -12,6 +12,44 @@ Every capture is uploaded to Google by your browser, in your browser's session.
 Staged pages embed the capture and are written owner-only, then deleted; kept
 copies (`keep_captures`) are owner-only too.
 
+## Install
+
+Prebuilt packages install both binaries, the icons, and the desktop entry.
+
+```bash
+sudo apt install ./capture-to-search_<version>_amd64.deb   # Debian / Ubuntu / Mint
+sudo dnf install ./capture-to-search-<version>.rpm         # Fedora
+sudo pacman -U capture-to-search-<version>.pkg.tar.zst     # Arch
+```
+
+Requires GTK 4.14+ and libadwaita 1.5+ (Ubuntu 24.04+, Fedora 40+, Debian 13,
+Arch). Capture additionally needs a screenshot backend: `xdg-desktop-portal`
+with a backend for your desktop covers most systems, and the packages recommend
+it. See **Portability** for the full fallback list.
+
+Upgrading does not interrupt the tray: the running daemon notices its binary was
+replaced and re-execs onto the new version within a few seconds.
+
+### From source, without root
+
+```bash
+./install.sh          # builds release and installs under ~/.local
+./uninstall.sh
+```
+
+### Building the packages yourself
+
+```bash
+./packaging/build-local.sh deb     # native, needs dpkg-deb
+./packaging/build-local.sh rpm     # in a fedora container, needs docker
+./packaging/build-local.sh arch    # in an archlinux container, needs docker
+./packaging/build-local.sh all
+```
+
+Output lands in `dist/`. The version comes from the workspace `Cargo.toml`;
+the packaging files template it as `@VERSION@` and a test asserts they never
+hardcode it.
+
 ## Usage
 
 ```bash
