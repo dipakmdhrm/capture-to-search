@@ -51,9 +51,26 @@ commands, conventions, or test boundaries, update the relevant docs **in the
 same PR** so they never drift from the code:
 
 - `README.md` - user-facing features, usage, and configuration
+- `CHANGELOG.md` - what shipped, in the reader's terms
 - `CLAUDE.md` - architecture, commands, conventions, and test-coverage boundaries
 
-Before opening a PR, re-read both and reconcile anything the change made
+`CHANGELOG.md` loosely follows [Keep a Changelog](https://keepachangelog.com/)
+and currently holds a single released `## 0.1.0` section. Add new work under an
+`## Unreleased` heading (create it if absent) in the right `### Added` /
+`### Changed` / `### Fixed` subsection - never edit a released section to
+describe work that has not shipped. Two rules specific to this file:
+
+- **Fixing a documented known issue means deleting its bullet from
+  `### Known issues`** and describing the fix under `### Fixed`. A stale known
+  issue is worse than none: it tells users to work around something that no
+  longer happens. The current entries cover the GNOME 46 portal handoff,
+  full-screen capture cost on multi-monitor setups, longest-edge downscaling,
+  and Flatpak autostart.
+- Entries say what changed *for the user* and why, matching the existing prose
+  style. This changelog is not a commit log, and internal refactors with no
+  observable effect do not belong in it.
+
+Before opening a PR, re-read all three and reconcile anything the change made
 inaccurate. The things that drift most easily in this repo:
 
 - the backend table under **Portability** and `Backend::ALL`, which must stay in
@@ -61,6 +78,8 @@ inaccurate. The things that drift most easily in this repo:
 - the config block under **Configuration** and the fields on `Config`
 - the command list under **Usage** and what `main.rs` actually parses
 - the invariants and IPC notes here, when a message, guard, or fallback changes
+- the test count quoted in `CHANGELOG.md` (currently 92), which every added test
+  invalidates: `cargo test --workspace` prints the real number
 
 Doc comments count as documentation. The module headers carry this codebase's
 reasoning (`lens.rs` on session-bound uploads, `capture/mod.rs` on the XWayland
