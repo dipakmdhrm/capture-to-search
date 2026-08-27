@@ -14,13 +14,14 @@
 mod doctor;
 mod flow;
 mod notify;
+mod self_update;
 mod server;
 mod single_instance;
 mod state;
 mod tray;
 mod window_proc;
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use anyhow::{Context, Result};
@@ -175,6 +176,18 @@ async fn run_daemon(show_window: bool) -> Result<()> {
         });
     }
 
+    // Restart onto the new binary when a package upgrade replaces it under us,
+    // so the tray does not linger on the old version until the next login.
+    // Release builds only: a dev rebuild should not bounce a daemon you are
+    // actively debugging.
+    let reexec = Arc::new(AtomicBool::new(false));
+    let exe_path = std::env::current_exe().ok();
+    if !cfg!(debug_assertions) {
+        if let Some(exe) = exe_path.clone() {
+            tokio::spawn(self_update::watch(exe, reexec.clone(), shutdown.clone()));
+        }
+    }
+
     let server_task = tokio::spawn(server::run(listener, ctx.clone()));
     let capture_task = tokio::spawn(run_capture_handler(ctx.clone(), capture_rx));
     let show_task = tokio::spawn(run_show_handler(ctx.clone(), show_rx));
@@ -196,6 +209,21 @@ async fn run_daemon(show_window: bool) -> Result<()> {
     capture_task.abort();
     show_task.abort();
     let _ = std::fs::remove_file(&socket_path);
+
+    // Triggered by a binary upgrade rather than a real quit: now that the
+    // socket, tray, and window are gone, hand off to the new binary in place.
+    if reexec.load(Ordering::SeqCst) {
+        if let Some(exe) = exe_path {
+            // Give the SNI watcher a moment to process our tray's
+            // deregistration before the re-exec'd process - same PID -
+            // re-registers the same well-known name, so the two do not race
+            // and drop the icon.
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            tracing::info!("re-executing {}", exe.display());
+            let err = self_update::reexec_into(&exe);
+            tracing::error!("re-exec failed, exiting: {err}");
+        }
+    }
     Ok(())
 }
 

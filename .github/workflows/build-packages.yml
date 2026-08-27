@@ -1,0 +1,195 @@
+name: Build packages
+
+# Reusable workflow: builds the .deb, .rpm and Arch packages and uploads them
+# as artifacts. Called by CI on pull requests (to prove everything still
+# builds) and by Release on a tag (to produce the artifacts that get attached
+# to the GitHub Release). Because both paths call this same workflow, a green
+# PR means the tag build is just a repeat.
+#
+# All three delegate their file layout to packaging/stage-tree.sh and
+# packaging/source-tarball.sh, the same scripts packaging/build-local.sh uses,
+# so a package cannot drift between a local build and CI.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version embedded in the package filenames and metadata.
+        required: true
+        type: string
+      ref:
+        description: >-
+          Git ref to build. Empty means the ref that triggered the caller (the
+          PR head on CI, the tag on a tag push). The auto-release flow passes
+          the freshly-pushed tag so the build includes the version-bump commit.
+        required: false
+        type: string
+        default: ''
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-deb:
+    name: deb (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest,    arch: amd64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libadwaita-1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binaries
+        run: cargo build --release --workspace --locked
+
+      - name: Stage and build .deb
+        run: |
+          set -euo pipefail
+          STAGING=$(mktemp -d)
+          ./packaging/stage-tree.sh "$STAGING"
+
+          mkdir -p "$STAGING/DEBIAN"
+          for f in postinst prerm postrm; do
+            install -m0755 "packaging/deb/$f" "$STAGING/DEBIAN/$f"
+          done
+          sed -e "s/@VERSION@/${VERSION}/" -e "s/@ARCH@/${{ matrix.arch }}/" \
+            packaging/deb/control.template > "$STAGING/DEBIAN/control"
+
+          dpkg-deb --root-owner-group --build "$STAGING" \
+            "capture-to-search_${VERSION}_${{ matrix.arch }}.deb"
+
+      - name: Verify the package installs and runs
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y "./capture-to-search_${VERSION}_${{ matrix.arch }}.deb"
+          capture-to-searchd --version
+          # The binary must be reachable under the name the desktop entry uses.
+          command -v capture-to-search-gui
+          sudo apt-get remove -y capture-to-search
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: capture-to-search_*.deb
+
+  build-rpm:
+    name: rpm (${{ matrix.rpmarch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest,    rpmarch: x86_64 }
+          - { runner: ubuntu-24.04-arm, rpmarch: aarch64 }
+    runs-on: ${{ matrix.runner }}
+    container: fedora:latest
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      # tar and zstd are needed by actions/checkout and actions/cache inside
+      # this minimal container.
+      - name: Install build tools
+        run: |
+          dnf install -y git rpm-build cargo rust gcc tar zstd \
+            gtk4-devel libadwaita-devel
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      # rpmbuild compiles in an ephemeral BUILD dir, so the spec's cargo_target
+      # macro redirects cargo's output to a stable path that can be cached -
+      # otherwise every run recompiles gtk4-sys and ring from scratch.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: rpm-${{ matrix.rpmarch }}
+          workspaces: ". -> rpm-target"
+
+      - name: Build .rpm
+        run: |
+          set -euo pipefail
+          # checkout leaves the workspace owned by a different uid than the
+          # container user, which makes git refuse to read it.
+          git config --global --add safe.directory "$PWD"
+
+          mkdir -p rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          ./packaging/source-tarball.sh "$VERSION" \
+            "rpmbuild/SOURCES/capture-to-search-${VERSION}.tar.gz"
+
+          sed -e "s/@VERSION@/${VERSION}/g" \
+              -e "s/@CHANGELOG_DATE@/$(LC_ALL=C date '+%a %b %d %Y')/g" \
+            packaging/rpm/capture-to-search.spec > rpmbuild/SPECS/capture-to-search.spec
+
+          rpmbuild --define "_topdir ${PWD}/rpmbuild" \
+            --define "cargo_target ${GITHUB_WORKSPACE}/rpm-target" \
+            -bb rpmbuild/SPECS/capture-to-search.spec
+          find rpmbuild/RPMS -name '*.rpm' -exec cp {} . \;
+
+      - name: Verify the package installs and runs
+        run: |
+          set -euo pipefail
+          dnf install -y ./capture-to-search-*.rpm
+          capture-to-searchd --version
+          rpm -e capture-to-search
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-${{ matrix.rpmarch }}
+          path: "*.rpm"
+
+  build-arch:
+    name: arch (x86_64)
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Install build tools
+        run: pacman -Syu --noconfirm --needed git base-devel rust gtk4 libadwaita
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Build pacman package
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$PWD"
+
+          mkdir -p arch-build
+          ./packaging/source-tarball.sh "$VERSION" \
+            "arch-build/capture-to-search-${VERSION}.tar.gz"
+          sed "s/@VERSION@/${VERSION}/g" packaging/arch/PKGBUILD > arch-build/PKGBUILD
+          cp packaging/arch/capture-to-search.install arch-build/
+
+          # makepkg refuses to run as root.
+          useradd -m builder
+          chown -R builder:builder arch-build
+          su builder -c "cd arch-build && makepkg --noconfirm --skipinteg"
+
+      - name: Verify the package installs and runs
+        run: |
+          set -euo pipefail
+          pacman -U --noconfirm arch-build/*.pkg.tar.zst
+          capture-to-searchd --version
+          pacman -R --noconfirm capture-to-search
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch
+          path: arch-build/*.pkg.tar.zst

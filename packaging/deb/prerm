@@ -1,0 +1,14 @@
+#!/bin/bash
+set -e
+
+# Only stop the daemon and window on an actual removal. On upgrade (dpkg calls
+# this with "upgrade <new-version>") we deliberately leave the running daemon
+# alone: it notices its replaced binary and re-execs onto the new version
+# itself (see daemon/src/self_update.rs), so the tray icon never disappears
+# mid-upgrade.
+if [ "$1" = "remove" ]; then
+    pkill -x capture-to-searchd 2>/dev/null || true
+    pkill -x capture-to-search-gui 2>/dev/null || true
+fi
+
+exit 0

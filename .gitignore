@@ -1,1 +1,4 @@
 /target
+/dist
+/rpmbuild
+/arch-build

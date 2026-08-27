@@ -1,0 +1,24 @@
+post_install() {
+    update-desktop-database /usr/share/applications 2>/dev/null || true
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+}
+
+post_upgrade() {
+    # The running daemon is deliberately left alone: it notices its replaced
+    # binary and re-execs onto the new version itself, so the tray icon does not
+    # disappear mid-upgrade.
+    post_install
+}
+
+pre_remove() {
+    pkill -x capture-to-searchd 2>/dev/null || true
+    pkill -x capture-to-search-gui 2>/dev/null || true
+}
+
+post_remove() {
+    for home_dir in /home/*; do
+        rm -f "${home_dir}/.config/autostart/capture-to-search.desktop" 2>/dev/null || true
+    done
+    update-desktop-database /usr/share/applications 2>/dev/null || true
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+}

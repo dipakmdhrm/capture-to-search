@@ -1,0 +1,74 @@
+# Maintainer: dipakmdhrm <dipakmdhrm@gmail.com>
+pkgname=capture-to-search
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="Search any part of your screen with Google Lens"
+arch=('x86_64')
+url="https://github.com/dipakmdhrm/capture-to-search"
+license=('MIT')
+depends=('gtk4' 'libadwaita')
+makedepends=('cargo')
+optdepends=(
+    'xdg-desktop-portal: screen capture on Wayland and most desktops'
+    'xdg-utils: opening the results in your browser'
+    'grim: screen capture on wlroots compositors'
+    'slurp: region selection on wlroots compositors'
+    'gnome-screenshot: screen capture fallback on GNOME'
+    'spectacle: screen capture fallback on KDE'
+)
+install=capture-to-search.install
+# [profile.release] already strips the binaries, so a debug package would carry
+# no symbols - makepkg would still emit an empty one.
+options=(!debug)
+source=("${pkgname}-${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+_appid=io.github.dipakmdhrm.CaptureToSearch
+
+build() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+    export CARGO_TARGET_DIR=target
+    # makepkg injects hardening compiler and linker flags (function-sections
+    # plus --gc-sections, lld, and so on) that garbage-collect ring's static
+    # C/asm objects at link time, producing "undefined symbol: ring_core_*".
+    # ring reaches us through rustls, which every HTTP path depends on. The deb
+    # and rpm builds succeed with plain cargo defaults, so clear these and build
+    # the same way.
+    unset RUSTFLAGS CARGO_BUILD_RUSTFLAGS CARGO_ENCODED_RUSTFLAGS \
+          CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
+    cargo build --release --workspace --locked
+}
+
+check() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+    export CARGO_TARGET_DIR=target
+    unset RUSTFLAGS CARGO_BUILD_RUSTFLAGS CARGO_ENCODED_RUSTFLAGS \
+          CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
+    # The suite needs no display, D-Bus session, or network, so it runs fine in
+    # a clean chroot.
+    cargo test --release --workspace --locked
+}
+
+package() {
+    cd "${srcdir}/${pkgname}-${pkgver}"
+
+    install -Dm755 target/release/capture-to-searchd \
+        "${pkgdir}/usr/bin/capture-to-searchd"
+    install -Dm755 target/release/capture-to-search-gui \
+        "${pkgdir}/usr/bin/capture-to-search-gui"
+    install -Dm644 "data/applications/${_appid}.desktop" \
+        "${pkgdir}/usr/share/applications/${_appid}.desktop"
+    install -Dm644 "data/metainfo/${_appid}.metainfo.xml" \
+        "${pkgdir}/usr/share/metainfo/${_appid}.metainfo.xml"
+
+    for size in 16 24 32 48 64 128 256 512; do
+        install -Dm644 "data/icons/hicolor/${size}x${size}/apps/${_appid}.png" \
+            "${pkgdir}/usr/share/icons/hicolor/${size}x${size}/apps/${_appid}.png"
+    done
+    install -Dm644 "data/icons/hicolor/scalable/apps/${_appid}.svg" \
+        "${pkgdir}/usr/share/icons/hicolor/scalable/apps/${_appid}.svg"
+    install -Dm644 "data/icons/hicolor/scalable/apps/${_appid}-symbolic.svg" \
+        "${pkgdir}/usr/share/icons/hicolor/scalable/apps/${_appid}-symbolic.svg"
+
+    install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

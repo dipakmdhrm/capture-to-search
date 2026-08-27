@@ -27,14 +27,22 @@ pull request, so lint and tests run against the change before it merges.
    when everything is green and all review comments are addressed. Stop when the
    PR is ready and report its URL.
 
-There is no CI in this repo yet, so nothing runs these checks for you. Before
-opening a PR, run them locally and report the results:
+CI runs these on every pull request, but run them locally before opening one
+and report the results - a red PR wastes a review cycle:
 
 ```bash
+rustup update stable   # see below - CI uses the latest stable
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
+
+**Update the toolchain first.** CI installs the latest stable, so an older local
+toolchain runs an older clippy and can report clean on code CI rejects. That has
+already happened once: clippy 1.98 added `chunks_exact_to_as_chunks`, which
+1.97 did not have, so a locally green branch failed in CI. If you would rather
+this could not happen at all, pin the toolchain with a `rust-toolchain.toml`
+and bump it deliberately.
 
 **One PR per prompt:** create exactly one pull request per user request, even
 when the work is large. Use multiple commits on the same branch for
@@ -235,6 +243,108 @@ footprint. A reaper task clears `window`/`window_alive`/`window_kill` and fires
 `window_gone`, which `flow::dismiss_window` waits on. `gui_path()` returning
 `None` is a supported state, not an error: the tray just omits its window entry.
 
+## CI and releases
+
+Four workflows in `.github/workflows`:
+
+- **`ci.yml`** - on every PR: `fmt`, `clippy -D warnings`, `cargo test
+  --workspace`, then every package build. The package job is gated on the check
+  job so a failing lint does not burn three container builds.
+- **`build-packages.yml`** - reusable, called by both CI and the release. Builds
+  the `.deb` (amd64, arm64), `.rpm` (x86_64, aarch64) and Arch package, and
+  **installs each one and runs `capture-to-searchd --version`** before uploading
+  it. Because CI and the release call the same workflow, a tag build repeats an
+  already-validated build rather than trying for the first time.
+- **`release.yml`** - on a `v*` tag push, or called by auto-release. Builds the
+  packages and attaches them to a GitHub Release.
+- **`auto-release.yml`** - on merge to main: picks the bump from the merged PR's
+  `release:*` label (default patch), computes the next version from the newest
+  `v*` tag, rewrites `[workspace.package] version`, syncs `Cargo.lock`, stamps
+  `CHANGELOG.md` (`## Unreleased` becomes the version, a fresh empty one is left
+  on top), commits, tags, pushes, then calls `release.yml`.
+
+Things to know before editing these:
+
+- **Label a PR `release:skip`** to merge without cutting a release;
+  `release:minor` / `release:major` change the bump.
+- **The next version comes from `packaging/next-version.sh`**, which bases it on
+  the higher of the newest `v*` tag and the manifest version. Keep the rule in
+  that script rather than inlining it back into YAML, where it cannot be tested -
+  the tag-only version it replaced would have released `0.0.1` over a manifest
+  reading `0.1.0`. Run it to preview what a merge will tag.
+- A merge touching only `.github/` or `*.md` does **not** release - there is
+  nothing user-facing to ship. An explicit `release:major`/`release:minor` label
+  overrides that.
+- **No release loop**: the bump commit and tag are pushed with the default
+  `GITHUB_TOKEN`, and pushes made with that token do not trigger workflows. That
+  is also why `auto-release.yml` invokes `release.yml` via `workflow_call`
+  instead of relying on its `push: tags` trigger, which the token-pushed tag
+  would never fire.
+- **`packaging/stage-tree.sh` and `packaging/source-tarball.sh` are shared** by
+  `build-local.sh` and CI, deliberately. A private copy of the file layout in
+  either place is how an asset ends up in one package and not the other; that
+  has already happened once with the symbolic tray icon. Tests assert both paths
+  use the scripts.
+- **The apt repository is optional and non-blocking.** `release.yml`'s `pages`
+  job publishes a signed apt repo to `gh-pages` so `apt upgrade` tracks
+  releases, and the `.deb`'s `postinst` subscribes to it. It gates on the
+  `APT_SIGNING_KEY` secret in a *step* rather than a job-level `if`, because the
+  `secrets` context is not available there, and the `release` job never depends
+  on it - a repository misconfiguration must not cost you the packages. Setup is
+  in `docs/RELEASING.md`.
+- Lint workflow changes before pushing - GitHub is the only other place they
+  run: `docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest`.
+
+## Packaging
+
+`packaging/` holds one definition per format - `deb/` (control template plus
+maintainer scripts), `rpm/` (a single spec), `arch/` (PKGBUILD plus install
+hooks) - and `build-local.sh`, which builds all three without CI: deb natively
+via `dpkg-deb`, rpm and arch inside `fedora`/`archlinux` docker containers.
+Output goes to `dist/`. Flatpak is not packaged yet; see the notes below.
+
+A **single package** ships both binaries, so it depends on GTK4 and libadwaita
+even though the daemon itself links neither. That is a deliberate choice: it
+keeps packaging simple at the cost of excluding hosts without libadwaita 1.5.
+The crate split still matters for `cargo build` and for `install.sh`, which
+installs the GUI only if it was built.
+
+Things that will bite you here:
+
+- **The version is templated as `@VERSION@`** in all three formats and
+  substituted at build time from the workspace `Cargo.toml`. A test asserts the
+  files never hardcode it, because nothing else would notice a stale version.
+- **Arch must unset `RUSTFLAGS`/`CFLAGS`/`LDFLAGS`.** makepkg's hardening flags
+  garbage-collect `ring`'s static asm objects at link time (`undefined symbol:
+  ring_core_*`); `ring` reaches us through rustls. The PKGBUILD documents this.
+- **Maintainer scripts must not kill the daemon on upgrade** - only on removal.
+  See the self-update invariant below. There is a test for this.
+- **Removal cleans up `~/.config/autostart/capture-to-search.desktop`** for every
+  user, since the app writes it per-user and only packaging can remove it.
+  Tested.
+- `packaging_tests` in `core/src/lib.rs` pins binary names, the app id, package
+  names, and the above rules against the packaging files. It exists because a
+  rename in the app produces a package that installs cleanly and then does
+  nothing.
+
+**Flatpak is deliberately not packaged yet.** Two blockers, both specific to
+this app: the staged `file://` upload page lives in the sandbox's runtime dir,
+which the host browser cannot read (it may survive the OpenURI portal's
+document-portal re-export, but that is unverified), and autostart needs the
+Background portal, which `core/src/autostart.rs` currently rejects with an
+explicit error. Inside a sandbox only the portal capture backend is reachable.
+
+### Self-update
+
+`daemon/src/self_update.rs` polls the daemon's own binary and, when a package
+upgrade replaces it, re-execs onto the new image. This is why the maintainer
+scripts leave a running daemon alone on upgrade - without it the tray icon
+would disappear until the next login. Release builds only, so a dev rebuild does
+not bounce a daemon you are debugging. `main` performs the handoff after the
+socket, tray, and window are torn down, with a one-second pause so the SNI
+watcher processes the deregistration before the same PID re-registers the same
+well-known name.
+
 ## Conventions
 
 - **Doc comments explain why, not what.** Module headers carry the reasoning
@@ -244,6 +354,11 @@ footprint. A reaper task clears `window`/`window_alive`/`window_kill` and fires
 - **Test names are behavioural sentences** with a comment stating the failure
   they prevent - `x11_tools_are_disabled_on_wayland_even_with_display_set`,
   `stale_socket_from_a_crash_is_reclaimed`. Match this style.
+- **The suite must also pass from an extracted source tarball**, with no `.git`
+  and no network. The Arch package runs `cargo test` in its `check()` against
+  exactly that, so a test shelling out to `git` breaks a distro build rather
+  than a checkout - `next-version.sh` did precisely that once. There is a
+  regression test for it.
 - Tests live in inline `#[cfg(test)] mod tests` blocks; `core/tests/` is empty.
   Everything is designed to pass headless with no network - keep it that way by
   splitting pure logic out of the code that talks to D-Bus or spawns processes
