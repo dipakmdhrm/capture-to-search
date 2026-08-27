@@ -24,18 +24,41 @@ It never blocks a release.
 
 ### One-time setup
 
-**1. Create a signing key.** Use a dedicated key, not your personal one.
+**1. Create a signing key.** Use a dedicated key, not your personal one. Its
+user ID is published in the repository, so use a name and address you are happy
+to have public.
 
 ```bash
 gpg --quick-generate-key "Capture to Search <dipakmdhrm@gmail.com>" rsa4096 sign never
+```
+
+gpg prompts for a passphrase. Set one: the exported key file sits on disk for a
+moment in the next step, and a passphrase is what protects it if that file
+leaks. Note the fingerprint it prints, or find it again with:
+
+```bash
+gpg --list-secret-keys --keyid-format=long "Capture to Search"
+```
+
+**2. Export the private key.** This is what the secret holds. gpg asks for the
+passphrase again.
+
+```bash
 gpg --armor --export-secret-keys "Capture to Search" > /tmp/apt-signing-key.asc
 ```
 
-**2. Add the repository secrets.**
+Sanity-check before uploading - the file should start with a private key header
+and be a few kilobytes:
+
+```bash
+head -1 /tmp/apt-signing-key.asc     # -----BEGIN PGP PRIVATE KEY BLOCK-----
+```
+
+**3. Add the repository secrets, then destroy the file.**
 
 ```bash
 gh secret set APT_SIGNING_KEY < /tmp/apt-signing-key.asc
-gh secret set APT_SIGNING_KEY_PASSPHRASE          # empty if the key has none
+gh secret set APT_SIGNING_KEY_PASSPHRASE          # paste the passphrase
 shred -u /tmp/apt-signing-key.asc                 # do not leave the key on disk
 ```
 
@@ -43,10 +66,31 @@ Both live in **Settings > Secrets and variables > Actions**. The private key
 never appears in a build log: it is imported into a throwaway keyring on the
 runner and used only to sign the repository's `Release` file.
 
-**3. Enable GitHub Pages** on the `gh-pages` branch, at **Settings > Pages**.
+**4. Enable GitHub Pages** on the `gh-pages` branch, at **Settings > Pages**.
 The branch does not exist yet; the first release creates it, so either publish a
 release first and then enable Pages, or create an empty `gh-pages` branch by
 hand.
+
+### Checking the key works before you rely on it
+
+Optional, but it exercises the exact path the runner uses - import into a
+throwaway keyring, sign with loopback pinentry, verify as apt would:
+
+```bash
+export GNUPGHOME=$(mktemp -d) && chmod 700 "$GNUPGHOME"
+printf 'pinentry-mode loopback\n' >> "$GNUPGHOME/gpg.conf"
+gpg --batch --import /path/to/apt-signing-key.asc
+FPR=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')
+
+echo "Origin: test" > Release
+gpg --batch --yes --pinentry-mode loopback --passphrase 'YOUR-PASSPHRASE' \
+  --local-user "$FPR" -abs -o Release.gpg Release
+gpg --armor --export "$FPR" | gpg --dearmor > key.gpg
+gpg --no-default-keyring --keyring ./key.gpg --verify Release.gpg Release
+```
+
+The last command should print `Good signature`. Unset `GNUPGHOME` afterwards so
+you are back on your real keyring.
 
 ### What users then do
 
