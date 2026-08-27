@@ -267,6 +267,11 @@ Things to know before editing these:
 
 - **Label a PR `release:skip`** to merge without cutting a release;
   `release:minor` / `release:major` change the bump.
+- **The next version comes from `packaging/next-version.sh`**, which bases it on
+  the higher of the newest `v*` tag and the manifest version. Keep the rule in
+  that script rather than inlining it back into YAML, where it cannot be tested -
+  the tag-only version it replaced would have released `0.0.1` over a manifest
+  reading `0.1.0`. Run it to preview what a merge will tag.
 - A merge touching only `.github/` or `*.md` does **not** release - there is
   nothing user-facing to ship. An explicit `release:major`/`release:minor` label
   overrides that.

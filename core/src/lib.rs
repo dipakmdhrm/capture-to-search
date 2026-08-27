@@ -65,6 +65,7 @@ mod packaging_tests {
         "packaging/build-local.sh",
         "packaging/stage-tree.sh",
         "packaging/source-tarball.sh",
+        "packaging/next-version.sh",
         "install.sh",
         "uninstall.sh",
         ".github/workflows/ci.yml",
@@ -340,6 +341,86 @@ mod packaging_tests {
         assert!(
             !needs.contains("pages"),
             "the GitHub Release must not depend on apt publishing, got `{needs}`"
+        );
+    }
+
+    /// Parse "1.2.3" for comparison.
+    fn semver(v: &str) -> (u64, u64, u64) {
+        let mut it = v.trim().split('.').map(|p| p.parse::<u64>().unwrap_or(0));
+        (
+            it.next().unwrap_or(0),
+            it.next().unwrap_or(0),
+            it.next().unwrap_or(0),
+        )
+    }
+
+    fn manifest_version() -> String {
+        let toml = read("Cargo.toml");
+        let after = toml
+            .split("[workspace.package]")
+            .nth(1)
+            .expect("no [workspace.package] section");
+        after
+            .lines()
+            .find_map(|l| l.strip_prefix("version = \""))
+            .and_then(|v| v.split('\"').next())
+            .expect("no version in [workspace.package]")
+            .to_string()
+    }
+
+    #[test]
+    fn the_next_version_never_goes_backwards() {
+        // The release version is computed from git tags, but the manifest and
+        // changelog can already claim a higher one - as they did here, with
+        // 0.1.0 declared before any tag existed. A tag-only base would have
+        // released 0.0.1, rewriting the manifest backwards and stamping a 0.0.1
+        // changelog section above the 0.1.0 one.
+        let root = root();
+        let manifest = semver(&manifest_version());
+
+        for bump in ["patch", "minor", "major"] {
+            let out = std::process::Command::new(root.join("packaging/next-version.sh"))
+                .arg(bump)
+                .arg(&root)
+                .output()
+                .expect("next-version.sh should run");
+            assert!(
+                out.status.success(),
+                "next-version.sh {bump} failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let next = semver(&String::from_utf8_lossy(&out.stdout));
+            assert!(
+                next > manifest,
+                "{bump} produced {next:?}, which is not ahead of the manifest {manifest:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_bump_is_rejected() {
+        // A typo in a release label must not quietly release something.
+        let root = root();
+        let out = std::process::Command::new(root.join("packaging/next-version.sh"))
+            .arg("pathc")
+            .arg(&root)
+            .output()
+            .expect("next-version.sh should run");
+        assert!(!out.status.success(), "an unknown bump should fail");
+    }
+
+    #[test]
+    fn the_release_workflow_uses_the_shared_version_rule() {
+        // Reinlining the calculation into YAML would put it beyond the reach of
+        // the test above.
+        let wf = read(".github/workflows/auto-release.yml");
+        assert!(
+            wf.contains("next-version.sh"),
+            "auto-release.yml should delegate the version calculation"
+        );
+        assert!(
+            !wf.contains("sort=-v:refname"),
+            "auto-release.yml should not compute versions itself any more"
         );
     }
 

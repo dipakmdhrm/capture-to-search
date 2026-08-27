@@ -7,6 +7,16 @@ Release. Nothing else is required.
 - The bump comes from a `release:*` label on the merged pull request and
   defaults to a patch. Use `release:minor` or `release:major` to change it, and
   `release:skip` to merge without releasing.
+- The version is computed by `packaging/next-version.sh`, from whichever is
+  higher: the newest `v*` tag, or the version `Cargo.toml` already declares.
+  Taking the maximum matters in both directions - a tag-only base would release
+  `0.0.1` over a manifest already reading `0.1.0`, and a manifest-only base
+  would reissue a version that is already tagged. Check what a merge would
+  produce before merging:
+
+  ```bash
+  ./packaging/next-version.sh patch
+  ```
 - A merge that touches only `.github/` or `*.md` ships nothing user-facing and
   does not release.
 - To release by hand instead, push a tag: `git tag v0.2.0 && git push origin v0.2.0`.

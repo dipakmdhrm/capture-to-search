@@ -5,7 +5,7 @@ name: Auto Release
 #
 # Flow:
 #   1. Read the merged PR's `release:*` label to pick the bump (default: patch).
-#   2. Compute the next version from the newest `v*` tag.
+#   2. Compute the next version with packaging/next-version.sh.
 #   3. Bump [workspace.package] version, sync Cargo.lock, and stamp
 #      CHANGELOG.md (Unreleased -> the new version).
 #   4. Commit and push that to main, then create and push the tag.
@@ -87,18 +87,14 @@ jobs:
             exit 0
           fi
 
-          # --- Compute the next version from the newest v* tag --------------
-          LATEST=$(git tag -l 'v*' --sort=-v:refname | head -1)
-          LATEST=${LATEST:-v0.0.0}
-          IFS=. read -r MA MI PA <<< "${LATEST#v}"
-          case "$BUMP" in
-            major) MA=$((MA + 1)); MI=0; PA=0 ;;
-            minor) MI=$((MI + 1)); PA=0 ;;
-            patch) PA=$((PA + 1)) ;;
-          esac
-          VER="${MA}.${MI}.${PA}"
+          # --- Compute the next version --------------------------------------
+          # Delegated so the rule is testable rather than buried in YAML. The
+          # base is the higher of the newest v* tag and the version the
+          # manifest already claims: a tag-only base would have released 0.0.1
+          # over a manifest already reading 0.1.0, rewriting it backwards.
+          VER="$(./packaging/next-version.sh "$BUMP")"
           TAG="v${VER}"
-          echo "Releasing ${TAG} (${BUMP}) from ${LATEST}"
+          echo "Releasing ${TAG} (${BUMP})"
 
           # --- Apply the bump -----------------------------------------------
           # Only the version inside [workspace.package]; the three crates

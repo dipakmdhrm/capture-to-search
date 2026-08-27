@@ -42,7 +42,7 @@ pre-release (`0.1.0`).
   unreachable repository never fails an install. Removing the package removes
   the repository configuration. See `docs/RELEASING.md`.
 
-- The test suite is now **109 tests**, adding coverage for the binary-signature
+- The test suite is now **112 tests**, adding coverage for the binary-signature
   check behind the upgrade restart and for drift between the app and its
   packaging - a rename that reaches the code but not the package definitions
   produces a package that installs cleanly and then does nothing.
