@@ -21,86 +21,31 @@ Release. Nothing else is required.
   does not release.
 - To release by hand instead, push a tag: `git tag v0.2.0 && git push origin v0.2.0`.
 
-## Optional: the apt repository
+## The apt repository
 
-On top of the GitHub Release, the pipeline can publish a signed apt repository
-to GitHub Pages, so Debian and Ubuntu users get updates through `apt upgrade`
-instead of downloading a `.deb` each time. The installed package registers this
-repository itself, in its `postinst`.
+On top of the GitHub Release, each release publishes a signed apt repository to
+GitHub Pages, so Debian and Ubuntu users get updates through `apt upgrade`
+instead of downloading a `.deb` each time. The installed package subscribes to
+it itself, in its `postinst`.
 
-**This is entirely optional.** Until it is set up, the publishing job logs that
-it was skipped and everything else - packages, GitHub Release - works normally.
-It never blocks a release.
+**Publishing never blocks a release.** The job is gated on `APT_SIGNING_KEY`, so
+without that secret it logs that it skipped and the rest of the pipeline runs
+unchanged, and a failure inside it does not stop the GitHub Release. Losing an
+apt repository for one version is recoverable; losing the packages is not.
 
-### One-time setup
+### Setup
 
-**1. Create a signing key.** Use a dedicated key, not your personal one. Its
-user ID is published in the repository, so use a name and address you are happy
-to have public.
+Already done, and nothing here needs repeating:
 
-```bash
-gpg --quick-generate-key "Capture to Search <dipakmdhrm@gmail.com>" rsa4096 sign never
-```
+- `APT_SIGNING_KEY` and `APT_SIGNING_KEY_PASSPHRASE` hold a dedicated RSA
+  4096 signing key that does not expire. An expiring key would silently
+  start failing `apt update` on every user's machine the day it lapsed.
+- The `gh-pages` branch exists and GitHub Pages serves it at
+  <https://dipakmdhrm.github.io/capture-to-search/>. Its `.nojekyll` marker
+  keeps Pages from processing the tree, which would otherwise risk rewriting
+  or dropping paths an apt client needs.
 
-gpg prompts for a passphrase. Set one: the exported key file sits on disk for a
-moment in the next step, and a passphrase is what protects it if that file
-leaks. Note the fingerprint it prints, or find it again with:
-
-```bash
-gpg --list-secret-keys --keyid-format=long "Capture to Search"
-```
-
-**2. Export the private key.** This is what the secret holds. gpg asks for the
-passphrase again.
-
-```bash
-gpg --armor --export-secret-keys "Capture to Search" > /tmp/apt-signing-key.asc
-```
-
-Sanity-check before uploading - the file should start with a private key header
-and be a few kilobytes:
-
-```bash
-head -1 /tmp/apt-signing-key.asc     # -----BEGIN PGP PRIVATE KEY BLOCK-----
-```
-
-**3. Add the repository secrets, then destroy the file.**
-
-```bash
-gh secret set APT_SIGNING_KEY < /tmp/apt-signing-key.asc
-gh secret set APT_SIGNING_KEY_PASSPHRASE          # paste the passphrase
-shred -u /tmp/apt-signing-key.asc                 # do not leave the key on disk
-```
-
-Both live in **Settings > Secrets and variables > Actions**. The private key
-never appears in a build log: it is imported into a throwaway keyring on the
-runner and used only to sign the repository's `Release` file.
-
-**4. Enable GitHub Pages** on the `gh-pages` branch, at **Settings > Pages**.
-The branch does not exist yet; the first release creates it, so either publish a
-release first and then enable Pages, or create an empty `gh-pages` branch by
-hand.
-
-### Checking the key works before you rely on it
-
-Optional, but it exercises the exact path the runner uses - import into a
-throwaway keyring, sign with loopback pinentry, verify as apt would:
-
-```bash
-export GNUPGHOME=$(mktemp -d) && chmod 700 "$GNUPGHOME"
-printf 'pinentry-mode loopback\n' >> "$GNUPGHOME/gpg.conf"
-gpg --batch --import /path/to/apt-signing-key.asc
-FPR=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')
-
-echo "Origin: test" > Release
-gpg --batch --yes --pinentry-mode loopback --passphrase 'YOUR-PASSPHRASE' \
-  --local-user "$FPR" -abs -o Release.gpg Release
-gpg --armor --export "$FPR" | gpg --dearmor > key.gpg
-gpg --no-default-keyring --keyring ./key.gpg --verify Release.gpg Release
-```
-
-The last command should print `Good signature`. Unset `GNUPGHOME` afterwards so
-you are back on your real keyring.
+The only reason to touch any of it again is rotating the key, below.
 
 ### What users then do
 
@@ -118,10 +63,22 @@ If the repository is unreachable - not published yet, or the machine is offline
 
 ### Rotating or revoking the key
 
-Replace the `APT_SIGNING_KEY` secret and cut a release. Clients that already
-have the old key pinned in `/etc/apt/keyrings/capture-to-search.gpg` will report
-a signature failure on `apt update` until they reinstall the package, so
-announce a rotation rather than doing it quietly.
+Clients pin the key in `/etc/apt/keyrings/capture-to-search.gpg`, so a rotation
+makes `apt update` fail for everyone who installed under the old key until they
+reinstall the package. Announce it rather than doing it quietly.
+
+```bash
+gpg --quick-generate-key "Capture to Search <dipakmdhrm@gmail.com>" rsa4096 sign never
+gpg --armor --export-secret-keys "Capture to Search" > /tmp/apt-signing-key.asc
+gh secret set APT_SIGNING_KEY < /tmp/apt-signing-key.asc
+gh secret set APT_SIGNING_KEY_PASSPHRASE
+shred -u /tmp/apt-signing-key.asc
+```
+
+Then cut a release, which republishes `key.gpg` and re-signs the repository.
+Confirm the export really is the private half before uploading it - the file
+must begin with `-----BEGIN PGP PRIVATE KEY BLOCK-----`, and exporting the
+public key by mistake fails only later, during a release.
 
 ## Why the repository is signed the way it is
 
