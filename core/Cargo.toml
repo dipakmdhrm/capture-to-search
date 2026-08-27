@@ -1,0 +1,28 @@
+[package]
+name = "capture-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "net", "sync", "time", "process", "io-util", "fs"] }
+futures.workspace = true
+zbus.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+image.workspace = true
+# Embeds the capture into the staged upload page.
+base64 = "0.22"
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+# The example opens the staged page; the library itself never launches anything.
+open.workspace = true

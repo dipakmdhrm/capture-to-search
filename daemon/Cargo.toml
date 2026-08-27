@@ -1,0 +1,32 @@
+[package]
+name = "capture-to-searchd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "capture-to-searchd"
+path = "src/main.rs"
+
+[dependencies]
+capture-core.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "process", "io-util", "fs"] }
+futures.workspace = true
+zbus.workspace = true
+ksni.workspace = true
+notify-rust.workspace = true
+# Decode the embedded PNG app icon into ARGB pixmaps for the tray, so hosts that
+# mishandle a themed IconName still render a real icon.
+png.workspace = true
+open.workspace = true
+# Endpoint reachability probe in `doctor`.
+reqwest.workspace = true
+rustls.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

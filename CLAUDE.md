@@ -1,0 +1,235 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+Read `README.md` first. It documents the process model, why the browser performs
+the Lens upload, the backend probe order, config keys, and the CLI surface. This
+file covers what the README does not: the cross-file wiring, the invariants that
+are easy to break, and the commands.
+
+## Git workflow - IMPORTANT
+
+**Never push directly to `main`.** Always work on a feature branch and open a
+pull request, so lint and tests run against the change before it merges.
+
+1. Create a branch from the latest `main`:
+   ```bash
+   git checkout main && git pull
+   git checkout -b <descriptive-branch-name>
+   ```
+2. Commit changes on the branch.
+3. Push the branch and open a PR targeting `main`:
+   ```bash
+   git push -u origin <descriptive-branch-name>
+   gh pr create --base main --title "..." --body "..."
+   ```
+4. **Never merge a PR - merging is always the user's decision and action**, even
+   when everything is green and all review comments are addressed. Stop when the
+   PR is ready and report its URL.
+
+There is no CI in this repo yet, so nothing runs these checks for you. Before
+opening a PR, run them locally and report the results:
+
+```bash
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+**One PR per prompt:** create exactly one pull request per user request, even
+when the work is large. Use multiple commits on the same branch for
+reviewability instead of fanning out into many small PRs - only split when the
+user explicitly asks.
+
+This applies to all agents (Claude, Gemini, etc.) - no direct pushes to `main`,
+and no merges, under any circumstances.
+
+## Keep documentation in sync - IMPORTANT
+
+Whenever a change affects user-facing behavior, features, architecture,
+commands, conventions, or test boundaries, update the relevant docs **in the
+same PR** so they never drift from the code:
+
+- `README.md` - user-facing features, usage, and configuration
+- `CLAUDE.md` - architecture, commands, conventions, and test-coverage boundaries
+
+Before opening a PR, re-read both and reconcile anything the change made
+inaccurate. The things that drift most easily in this repo:
+
+- the backend table under **Portability** and `Backend::ALL`, which must stay in
+  the same order (the table is numbered by probe order)
+- the config block under **Configuration** and the fields on `Config`
+- the command list under **Usage** and what `main.rs` actually parses
+- the invariants and IPC notes here, when a message, guard, or fallback changes
+
+Doc comments count as documentation. The module headers carry this codebase's
+reasoning (`lens.rs` on session-bound uploads, `capture/mod.rs` on the XWayland
+trap, `window_proc.rs` on kill-on-close); if you change the behavior one
+describes, update it in the same change. Treat doc updates as part of "done,"
+not a follow-up.
+
+## Keep tests meaningful - IMPORTANT
+
+For every change, add or update tests when doing so is meaningful - treat it as
+part of "done," not a follow-up. "Meaningful" means the test would actually
+catch a regression in the behavior you changed:
+
+- New or changed logic with a testable contract (parsing, decisions, data
+  transforms, command construction, IPC handling) -> add or update unit tests
+  covering the new behavior and its edge cases.
+- Fixing a bug -> add a test that fails without the fix, so it cannot silently
+  regress.
+- When the meaningful logic is tangled with hard-to-test platform code (GTK4
+  widgets, zbus portal calls, spawning screenshot tools), **extract the pure
+  logic into a standalone function and test that.** This codebase already does
+  it throughout: `resolve_config_home`, `Backend::file_command`,
+  `purge_stale_pages_in`, `find_gui`, `lens::upload_page`, and the IPC framing
+  are all pure and directly tested, while the GTK UI in `gui/` is not
+  unit-tested at all.
+- Prefer a test that pins the *reason* a thing is the way it is, not just its
+  current value. `portal_is_tried_before_everything_else` and
+  `x11_tools_are_disabled_on_wayland_even_with_display_set` exist because those
+  behaviors fail silently in production - a wrong result, not a crash. New code
+  with a silent failure mode deserves the same treatment.
+- Run the suite before opening a PR: `cargo test --workspace`, plus
+  `cargo fmt --check` and
+  `cargo clippy --workspace --all-targets -- -D warnings`.
+
+Skip new tests only when a change genuinely has no testable behavior (docs,
+comments, pure formatting, trivial constant tweaks) - and say so briefly rather
+than silently omitting them.
+
+## Commands
+
+```bash
+cargo build                      # core + daemon only (workspace default-members)
+cargo build --workspace          # ...plus the GUI; needs GTK 4.14+ / libadwaita 1.5+
+cargo test --workspace           # no network and no display server needed
+cargo clippy --workspace --all-targets
+cargo fmt
+
+cargo test -p capture-core                       # one crate
+cargo test -p capture-core downscale             # tests matching a substring
+cargo test -p capture-to-searchd single_instance # one module
+
+# Inspect what a given image would send, and optionally open it in Lens:
+cargo run -p capture-core --example upload_file -- shot.png [--open]
+
+# Runtime diagnostics: selected backend, and why every other one was rejected.
+cargo run -p capture-to-searchd -- doctor
+RUST_LOG=debug cargo run -p capture-to-searchd -- capture --area
+```
+
+`cargo build` deliberately skips the GUI (see the comment on `default-members`
+in the root `Cargo.toml`) so the daemon builds on hosts with no GTK development
+libraries. Never move `gui` into `default-members`.
+
+Logging is `tracing` + `EnvFilter`; `RUST_LOG` overrides the default level
+(`info`, or `warn` for `doctor` so its report is not interleaved).
+
+## Architecture
+
+Three crates: `core` (`capture-core`, library), `daemon`
+(`capture-to-searchd`, the primary binary), `gui` (`capture-to-search-gui`,
+optional GTK4/libadwaita window). See the README table for responsibilities.
+
+### The capture path
+
+Every trigger converges on `daemon/src/flow.rs::pipeline`:
+
+```
+tray click / window Capture button / `capture` subcommand
+  -> IPC CaptureRequest (or direct, when no daemon is running)
+  -> daemon capture_tx channel -> run_capture_handler (serializes requests)
+  -> flow::pipeline
+       dismiss window -> wait for exit -> WINDOW_SETTLE repaint pause
+       purge stale staged pages
+       capture::capture (walks the backend chain)
+       lens::inspect (blank detection, logged only)
+       lens::downscale -> lens::upload_page -> paths::write_private (0600)
+       open::that_detached(page) -> browser POSTs to Lens itself
+```
+
+`flow::run` is the daemon path (holds the `capturing` guard, notifies on
+failure); `flow::run_standalone` is the no-daemon one-shot path. Both share
+`pipeline`, which takes `ctx: Option<&AppCtx>`.
+
+### Invariants worth knowing before editing
+
+- **Capture never moves out of the daemon.** The window must be off-screen
+  before the shutter fires. Adding capture logic to `gui/` would photograph the
+  window itself.
+- **`CaptureError::Cancelled` must not cascade.** `capture::capture` falls
+  through to the next backend on `Failed` but returns immediately on
+  `Cancelled` - otherwise pressing Escape pops a fresh selection overlay for
+  every remaining backend. Any new backend must return `Cancelled` for a
+  dismissed picker, not a generic error.
+- **X11-only backends are gated on `XDG_SESSION_TYPE`, never on `DISPLAY`.**
+  `DISPLAY` is set under Wayland too (XWayland), so a `DISPLAY` check makes
+  `scrot`/`maim`/`import` look available and silently return a black image.
+  `Backend::x11_only`/`wayland_only` encode this; there is a regression test.
+- **A pinned `capture_backend` disables fallback.** A pin is an explicit
+  instruction not to look elsewhere, so it errors rather than quietly using the
+  portal.
+- **`Backend::file_command` is pure and separately tested.** A wrong flag fails
+  *silently* (drop `-a` from `gnome-screenshot` and a region request captures
+  the whole screen with no error), so keep command construction out of the code
+  that runs it.
+- **Anything derived from a capture is written with `paths::write_private`**
+  (mode 0600): staged pages and `keep_captures` copies both embed a picture of
+  the user's screen.
+- **The staged upload page must stay self-contained.** No external script, link,
+  or `@import` - it is a `file://` page holding a screen capture. The endpoint
+  is user-configurable and lands in an HTML attribute, so it must stay escaped.
+  Tests cover all of this.
+- **`config_snapshot()` copies rather than holding the lock**, because
+  `pipeline` awaits for a long time afterwards and a concurrent `ReloadConfig`
+  would deadlock the daemon.
+
+### IPC
+
+`core/src/ipc.rs` holds one `IpcMessage` enum and two framing implementations
+over the same wire format (4-byte big-endian length + `serde_json`): async for
+the daemon, `ipc::blocking` for the GTK window, which has a GTK main loop rather
+than a tokio one. A test asserts the two stay wire-compatible - keep it that way
+rather than letting the blocking module drift.
+
+Adding a message means touching: the enum, the daemon's match arm in
+`daemon/src/server.rs::handle`, and the caller (`gui/src/daemon_link.rs` for
+window-initiated, `daemon/src/single_instance.rs` for CLI-initiated). Unknown
+and reply-only messages arriving inbound get an `Error` reply, not a panic.
+
+`CaptureRequest` is Acked *before* the capture runs: the flow kills the window
+as its first step, and a window waiting on its own Ack would deadlock.
+
+The socket at `$XDG_RUNTIME_DIR/capture-to-search/daemon.sock` is both the IPC
+endpoint and the single-instance guard. `single_instance::acquire` distinguishes
+a live daemon from a socket left by a crash with a `Ping`/`Pong` probe; a stale
+file is removed and rebound.
+
+### Window lifecycle
+
+The daemon owns at most one window child (`daemon/src/window_proc.rs`) and
+**kills it on close** rather than keeping it resident - it is one button, so
+respawning is cheap and a resident GTK process would dominate an idle tray app's
+footprint. A reaper task clears `window`/`window_alive`/`window_kill` and fires
+`window_gone`, which `flow::dismiss_window` waits on. `gui_path()` returning
+`None` is a supported state, not an error: the tray just omits its window entry.
+
+## Conventions
+
+- **Doc comments explain why, not what.** Module headers carry the reasoning
+  (`lens.rs` on session-bound uploads, `capture/mod.rs` on the XWayland trap,
+  `window_proc.rs` on kill-on-close). Preserve and extend that when you change
+  the behaviour they describe.
+- **Test names are behavioural sentences** with a comment stating the failure
+  they prevent - `x11_tools_are_disabled_on_wayland_even_with_display_set`,
+  `stale_socket_from_a_crash_is_reclaimed`. Match this style.
+- Tests live in inline `#[cfg(test)] mod tests` blocks; `core/tests/` is empty.
+  Everything is designed to pass headless with no network - keep it that way by
+  splitting pure logic out of the code that talks to D-Bus or spawns processes
+  (`resolve_config_home`, `file_command`, `purge_stale_pages_in` are the
+  existing examples).
+- `data/icons/**` is embedded into the daemon binary with `include_bytes!` in
+  `daemon/src/tray.rs`; those paths are compile-time, so moving the files breaks
+  the build.

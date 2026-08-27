@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Capture to Search
+GenericName=Screen Search
+Comment=Capture a region of your screen and search it with Google Lens
+Exec=capture-to-searchd --show-window
+Icon=io.github.dipakmdhrm.CaptureToSearch
+Terminal=false
+Categories=Graphics;
+Keywords=screenshot;capture;screen;lens;search;image;
+StartupNotify=true
+StartupWMClass=capture-to-search-gui

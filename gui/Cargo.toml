@@ -1,0 +1,21 @@
+[package]
+name = "capture-to-search-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "capture-to-search-gui"
+path = "src/main.rs"
+
+[dependencies]
+capture-core.workspace = true
+gtk4.workspace = true
+libadwaita.workspace = true
+# Bridges the daemon-connection thread into the GTK main loop.
+async-channel = "2"
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
