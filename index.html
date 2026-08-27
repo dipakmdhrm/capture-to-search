@@ -1,0 +1,43 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Capture to Search - APT repository</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 3rem auto;
+         padding: 0 1rem; line-height: 1.6; color: #222; }
+  code, pre { font-family: ui-monospace, monospace; }
+  pre { background: #f4f4f4; padding: .8rem; overflow-x: auto; border-radius: 4px; }
+  a { color: #06c; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1c1c1c; color: #ddd; }
+    pre { background: #262626; }
+    a { color: #6af; }
+  }
+</style>
+
+<h1>Capture to Search</h1>
+<p>
+  Capture part of your screen and search it with Google Lens, from the Linux
+  system tray.
+  <a href="https://github.com/dipakmdhrm/capture-to-search">Source and releases</a>.
+</p>
+
+<h2>APT repository</h2>
+<p>
+  Installing the <code>.deb</code> registers this repository automatically, so
+  later releases arrive through <code>apt upgrade</code>. To add it by hand:
+</p>
+<pre><code>curl -fsSL https://dipakmdhrm.github.io/capture-to-search/key.gpg \
+  | sudo tee /etc/apt/keyrings/capture-to-search.gpg > /dev/null
+
+echo "deb [arch=amd64,arm64 signed-by=/etc/apt/keyrings/capture-to-search.gpg] \
+https://dipakmdhrm.github.io/capture-to-search stable main" \
+  | sudo tee /etc/apt/sources.list.d/capture-to-search.list
+
+sudo apt update &amp;&amp; sudo apt install capture-to-search</code></pre>
+
+<h2>Other distributions</h2>
+<p>
+  Fedora <code>.rpm</code> and Arch packages are attached to each
+  <a href="https://github.com/dipakmdhrm/capture-to-search/releases">GitHub release</a>.
+</p>
