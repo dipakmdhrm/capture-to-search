@@ -113,8 +113,10 @@ moves it, this is a one-line fix rather than a wait for a release.
 ## Portability
 
 The daemon links no GUI toolkit, so the whole feature works on hosts with no
-GTK at all - the GUI is a separate, optional binary and package. When it is
-absent the tray simply omits its "Open window" entry.
+GTK at all - the GUI is a separate binary, and when it is absent the tray simply
+omits its "Open window" entry. The distribution packages ship both binaries and
+depend on GTK; a daemon-only install is a from-source configuration, which is
+what plain `cargo build` produces.
 
 Capture probes an ordered list of backends and uses the first that works:
 
