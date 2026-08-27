@@ -71,6 +71,7 @@ mod packaging_tests {
         ".github/workflows/build-packages.yml",
         ".github/workflows/release.yml",
         ".github/workflows/auto-release.yml",
+        "docs/RELEASING.md",
     ];
 
     #[test]
@@ -261,6 +262,85 @@ mod packaging_tests {
                 "build-local.sh does not use packaging/{script}"
             );
         }
+    }
+
+    #[test]
+    fn the_deb_registers_and_unregisters_the_apt_repository() {
+        // Publishing a repository nothing subscribes to would be pointless, and
+        // leaving the source list behind after removal makes `apt update` keep
+        // fetching a repository for software that is gone.
+        let postinst = read("packaging/deb/postinst");
+        assert!(
+            postinst.contains("sources.list.d/capture-to-search.list"),
+            "postinst should register the apt repository"
+        );
+        assert!(
+            postinst.contains(r#"if [ -z "$2" ]"#),
+            "the repository should only be registered on a fresh install, not on upgrade"
+        );
+
+        let postrm = read("packaging/deb/postrm");
+        for f in [
+            "sources.list.d/capture-to-search.list",
+            "keyrings/capture-to-search.gpg",
+        ] {
+            assert!(postrm.contains(f), "postrm should remove {f}");
+        }
+    }
+
+    #[test]
+    fn the_deb_depends_on_what_its_postinst_uses() {
+        // postinst fetches the repository key with curl and stores it with gnupg.
+        // Without these declared, a minimal system fails silently at install
+        // time and the package never auto-updates.
+        let control = read("packaging/deb/control.template");
+        let depends = control
+            .lines()
+            .find(|l| l.starts_with("Depends:"))
+            .expect("control template has no Depends line");
+        let postinst = read("packaging/deb/postinst");
+        for tool in ["curl", "gnupg"] {
+            let used = postinst.contains(match tool {
+                "gnupg" => "keyrings",
+                other => other,
+            });
+            if used {
+                assert!(
+                    depends.contains(tool),
+                    "Depends is missing {tool}, used by postinst"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn publishing_the_apt_repository_never_blocks_a_release() {
+        // The signing key is optional setup. Before it exists the job must skip
+        // cleanly, and it must never gate the GitHub Release - otherwise a
+        // repository misconfiguration loses the packages entirely.
+        let release = read(".github/workflows/release.yml");
+        assert!(
+            release.contains("APT_SIGNING_KEY"),
+            "release.yml does not publish the apt repository"
+        );
+        assert!(
+            release.contains("enabled=false"),
+            "the publishing job must skip cleanly when no signing key is set"
+        );
+
+        // The `release` job must not depend on `pages`.
+        let release_job = release
+            .split("\n  release:")
+            .nth(1)
+            .expect("release.yml has no release job");
+        let needs = release_job
+            .lines()
+            .find(|l| l.trim_start().starts_with("needs:"))
+            .unwrap_or("");
+        assert!(
+            !needs.contains("pages"),
+            "the GitHub Release must not depend on apt publishing, got `{needs}`"
+        );
     }
 
     #[test]

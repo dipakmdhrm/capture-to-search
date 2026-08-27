@@ -34,7 +34,15 @@ pre-release (`0.1.0`).
   three packages attached; the bump is taken from a `release:*` label on the
   merged pull request and defaults to a patch.
 
-- The test suite is now **106 tests**, adding coverage for the binary-signature
+- **Automatic updates on Debian and Ubuntu.** Releases can also publish a
+  signed apt repository to GitHub Pages, and the installed package subscribes to
+  it on first install, so later releases arrive through `apt upgrade` rather
+  than a manual download. Optional: until the signing key is configured the
+  publishing step skips itself and everything else works unchanged, and an
+  unreachable repository never fails an install. Removing the package removes
+  the repository configuration. See `docs/RELEASING.md`.
+
+- The test suite is now **109 tests**, adding coverage for the binary-signature
   check behind the upgrade restart and for drift between the app and its
   packaging - a rename that reaches the code but not the package definitions
   produces a package that installs cleanly and then does nothing.

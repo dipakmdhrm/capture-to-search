@@ -51,6 +51,124 @@ jobs:
       version: ${{ needs.get-version.outputs.version }}
       ref: ${{ inputs.ref }}
 
+  # Publish an apt repository to gh-pages so `apt upgrade` tracks new releases.
+  #
+  # Best-effort by design: this job never blocks the GitHub Release below, and
+  # it no-ops cleanly when APT_SIGNING_KEY is absent, so the pipeline works
+  # before the one-time setup in docs/RELEASING.md has been done.
+  pages:
+    needs: [get-version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.get-version.outputs.version }}
+    steps:
+      # `secrets` is not available in a job-level `if`, so the gate is a step.
+      - name: Check for a signing key
+        id: gate
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          if [ -z "$APT_SIGNING_KEY" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "### apt repository skipped: APT_SIGNING_KEY is not set (see docs/RELEASING.md)" \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install tools
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends reprepro
+
+      - name: Import GPG signing key
+        id: gpg
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          APT_SIGNING_KEY_PASSPHRASE: ${{ secrets.APT_SIGNING_KEY_PASSPHRASE }}
+        run: |
+          # The key may be passphrase-protected, and this runner is headless, so
+          # the passphrase has to be fed non-interactively over loopback rather
+          # than through a pinentry prompt.
+          mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
+          printf 'pinentry-mode loopback\n' >> ~/.gnupg/gpg.conf
+          printf 'allow-loopback-pinentry\n' >> ~/.gnupg/gpg-agent.conf
+          gpgconf --kill gpg-agent || true
+          gpgconf --launch gpg-agent
+          echo "$APT_SIGNING_KEY" | gpg --batch --import
+          FPR=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/{print $10; exit}')
+          echo "${FPR}:6:" | gpg --import-ownertrust
+          echo "FPR=${FPR}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          path: artifacts
+
+      - name: Clone or initialise gh-pages
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          if git ls-remote --exit-code --heads "$URL" gh-pages; then
+            git clone --depth 1 --branch gh-pages "$URL" pages
+          else
+            mkdir pages && cd pages && git init -b gh-pages && git remote add origin "$URL"
+          fi
+
+      - name: Build and sign the apt repository
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          FPR: ${{ steps.gpg.outputs.FPR }}
+          APT_SIGNING_KEY_PASSPHRASE: ${{ secrets.APT_SIGNING_KEY_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          cd pages
+          mkdir -p conf
+          # No `SignWith` here on purpose: reprepro signs Release through gpgme,
+          # which fails with an opaque "General error" on the runner. Let
+          # reprepro build the repo unsigned and sign Release ourselves below
+          # with direct gpg calls, which work reliably with loopback pinentry.
+          {
+            echo "Origin: Capture to Search"
+            echo "Label: Capture to Search"
+            echo "Codename: stable"
+            echo "Architectures: amd64 arm64"
+            echo "Components: main"
+            echo "Description: Capture to Search APT repository"
+          } > conf/distributions
+
+          gpg --armor --export "$FPR" | gpg --dearmor > key.gpg
+          reprepro -b . remove stable capture-to-search 2>/dev/null || true
+          for deb in ../artifacts/deb-*/*.deb; do
+            reprepro -b . includedeb stable "$deb"
+          done
+
+          # Sign the generated Release ourselves: InRelease (inline) and
+          # Release.gpg (detached) are what apt clients actually fetch.
+          rel="dists/stable/Release"
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "$APT_SIGNING_KEY_PASSPHRASE" --local-user "$FPR" \
+            --clearsign -o "dists/stable/InRelease" "$rel"
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "$APT_SIGNING_KEY_PASSPHRASE" --local-user "$FPR" \
+            -abs -o "dists/stable/Release.gpg" "$rel"
+
+      - name: Commit and push gh-pages
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          cd pages
+          git config user.email "github-actions@github.com"
+          git config user.name "GitHub Actions"
+          git add -A
+          git commit -m "Release v${VERSION}" || echo "nothing to commit"
+          git push origin gh-pages
+
   release:
     needs: [get-version, build]
     runs-on: ubuntu-latest

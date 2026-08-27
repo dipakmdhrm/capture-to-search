@@ -3,7 +3,7 @@ Version: @VERSION@
 Section: graphics
 Priority: optional
 Architecture: @ARCH@
-Depends: libgtk-4-1, libadwaita-1-0
+Depends: libgtk-4-1, libadwaita-1-0, curl, gnupg
 Recommends: xdg-desktop-portal, xdg-utils
 Suggests: gnome-screenshot, grim, slurp, spectacle, flameshot, maim, scrot
 Maintainer: dipakmdhrm <dipakmdhrm@gmail.com>

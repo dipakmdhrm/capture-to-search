@@ -1,6 +1,24 @@
 #!/bin/bash
 set -e
 
+APT_REPO="https://dipakmdhrm.github.io/capture-to-search"
+KEYRING="/etc/apt/keyrings/capture-to-search.gpg"
+SOURCES="/etc/apt/sources.list.d/capture-to-search.list"
+
+# On a fresh install ($2 is empty; on upgrade it holds the old version),
+# register the signed apt repository so `apt upgrade` tracks future releases.
+# Best-effort: if the repository is unreachable - not published yet, or the
+# machine is offline - the package is still perfectly usable, it just will not
+# auto-update.
+if [ -z "$2" ]; then
+    mkdir -p /etc/apt/keyrings
+    if curl -fsSL "${APT_REPO}/key.gpg" -o /tmp/cts-key.gpg 2>/dev/null; then
+        mv /tmp/cts-key.gpg "$KEYRING"
+        echo "deb [arch=amd64,arm64 signed-by=${KEYRING}] ${APT_REPO} stable main" > "$SOURCES"
+        apt-get update -qq 2>/dev/null || true
+    fi
+fi
+
 # Refresh the desktop database and icon cache so the launcher and icon show up.
 update-desktop-database /usr/share/applications 2>/dev/null || true
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true

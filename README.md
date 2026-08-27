@@ -22,6 +22,11 @@ sudo dnf install ./capture-to-search-<version>.rpm         # Fedora
 sudo pacman -U capture-to-search-<version>.pkg.tar.zst     # Arch
 ```
 
+On Debian and Ubuntu the package registers a signed apt repository on first
+install, so later releases arrive through `apt upgrade`. If that repository is
+unreachable the install still succeeds; the package simply will not
+auto-update. Removing the package removes the repository configuration again.
+
 Requires GTK 4.14+ and libadwaita 1.5+ (Ubuntu 24.04+, Fedora 40+, Debian 13,
 Arch). Capture additionally needs a screenshot backend: `xdg-desktop-portal`
 with a backend for your desktop covers most systems, and the packages recommend

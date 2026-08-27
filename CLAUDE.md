@@ -280,6 +280,13 @@ Things to know before editing these:
   either place is how an asset ends up in one package and not the other; that
   has already happened once with the symbolic tray icon. Tests assert both paths
   use the scripts.
+- **The apt repository is optional and non-blocking.** `release.yml`'s `pages`
+  job publishes a signed apt repo to `gh-pages` so `apt upgrade` tracks
+  releases, and the `.deb`'s `postinst` subscribes to it. It gates on the
+  `APT_SIGNING_KEY` secret in a *step* rather than a job-level `if`, because the
+  `secrets` context is not available there, and the `release` job never depends
+  on it - a repository misconfiguration must not cost you the packages. Setup is
+  in `docs/RELEASING.md`.
 - Lint workflow changes before pushing - GitHub is the only other place they
   run: `docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:latest`.
 

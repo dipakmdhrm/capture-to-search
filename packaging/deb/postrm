@@ -2,6 +2,12 @@
 set -e
 
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    # Remove the apt repository configuration added in postinst. Leaving it
+    # behind would make `apt update` keep fetching a repository for software
+    # that is no longer installed.
+    rm -f /etc/apt/keyrings/capture-to-search.gpg
+    rm -f /etc/apt/sources.list.d/capture-to-search.list
+
     # Remove autostart entries the app may have created for any user. The app
     # writes these per-user, so packaging is the only place that can clean them
     # up on removal.
