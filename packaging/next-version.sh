@@ -16,7 +16,14 @@ set -euo pipefail
 BUMP="${1:?usage: next-version.sh <major|minor|patch> [repo-root]}"
 ROOT="${2:-$(cd "$(dirname "$0")/.." && pwd)}"
 
-tag="$(git -C "$ROOT" tag -l 'v*' --sort=-v:refname | head -1)"
+# Outside a git checkout there are no tags to consult, and that is a normal
+# situation rather than an error: the Arch package runs the test suite against
+# the source extracted from the release tarball, which carries no .git. Failing
+# here would break that build, which is exactly what it did once.
+tag=""
+if git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  tag="$(git -C "$ROOT" tag -l 'v*' --sort=-v:refname | head -1 || true)"
+fi
 tag="${tag#v}"
 tag="${tag:-0.0.0}"
 

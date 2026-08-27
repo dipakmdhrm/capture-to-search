@@ -354,6 +354,11 @@ well-known name.
 - **Test names are behavioural sentences** with a comment stating the failure
   they prevent - `x11_tools_are_disabled_on_wayland_even_with_display_set`,
   `stale_socket_from_a_crash_is_reclaimed`. Match this style.
+- **The suite must also pass from an extracted source tarball**, with no `.git`
+  and no network. The Arch package runs `cargo test` in its `check()` against
+  exactly that, so a test shelling out to `git` breaks a distro build rather
+  than a checkout - `next-version.sh` did precisely that once. There is a
+  regression test for it.
 - Tests live in inline `#[cfg(test)] mod tests` blocks; `core/tests/` is empty.
   Everything is designed to pass headless with no network - keep it that way by
   splitting pure logic out of the code that talks to D-Bus or spawns processes

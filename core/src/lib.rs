@@ -398,6 +398,43 @@ mod packaging_tests {
     }
 
     #[test]
+    fn the_suite_runs_from_an_extracted_source_tarball() {
+        // The Arch package runs `cargo test` in check(), against the source
+        // unpacked from the release tarball - which carries no .git. Anything
+        // here that shells out to git therefore has to tolerate its absence, or
+        // it breaks a distro build rather than a developer's checkout. This
+        // exact case failed once: next-version.sh called `git tag -l` under
+        // `set -e`.
+        let staging = std::env::temp_dir().join(format!("cts-notgit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&staging);
+        std::fs::create_dir_all(staging.join("packaging")).unwrap();
+        std::fs::copy(root().join("Cargo.toml"), staging.join("Cargo.toml")).unwrap();
+        std::fs::copy(
+            root().join("packaging/next-version.sh"),
+            staging.join("packaging/next-version.sh"),
+        )
+        .unwrap();
+
+        let out = std::process::Command::new(staging.join("packaging/next-version.sh"))
+            .arg("patch")
+            .arg(&staging)
+            .output()
+            .expect("next-version.sh should run");
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let _ = std::fs::remove_dir_all(&staging);
+
+        assert!(
+            out.status.success(),
+            "next-version.sh must work without a git checkout, got: {stderr}"
+        );
+        assert!(
+            stdout.starts_with(char::is_numeric),
+            "expected a version, got `{stdout}` (stderr: {stderr})"
+        );
+    }
+
+    #[test]
     fn an_unknown_bump_is_rejected() {
         // A typo in a release label must not quietly release something.
         let root = root();
