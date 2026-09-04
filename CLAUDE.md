@@ -154,6 +154,44 @@ libraries. Never move `gui` into `default-members`.
 Logging is `tracing` + `EnvFilter`; `RUST_LOG` overrides the default level
 (`info`, or `warn` for `doctor` so its report is not interleaved).
 
+## Build artifact hygiene
+
+`target/` grows without bound if nobody trims it. Cargo never garbage-collects that
+directory, so every dependency bump, feature change, or toolchain update emits a fresh
+hash-suffixed artifact and keeps the previous one forever. A workspace this size reaches
+tens of gigabytes within a few weeks of unmaintained development, almost all of it stale
+copies of binaries no build can reach any more.
+
+Size any cleanup decision against three measured facts:
+
+- `cargo build --workspace` lands at about **1.2 GB**, and a full check cycle (build, then `clippy --workspace --all-targets`, then `test --workspace`) settles at about **1.8 GB**.
+- The `[profile.dev.package."*"]` override in the root `Cargo.toml` is what keeps it there. Without it the same cycle is **3.4 GB**, because every dependency then carries full DWARF: `capture-to-searchd` alone goes from 69 MB to 198 MB, and the GUI from 20 MB to 175 MB. Workspace crates keep their own debug info either way, so stepping through `core/` and `daemon/` is unaffected.
+- A cold `cargo build --workspace` takes about **two minutes**, so a full reset is affordable but not free. Prefer the cheaper trims below.
+
+After a session that ran cargo builds, check the size and report it when it exceeds
+**5 GB**. That is roughly 3x the full-cycle steady state, and means stale artifacts have
+piled up:
+
+```bash
+du -sh target
+```
+
+Trim in this order:
+
+```bash
+rm -rf target/debug/incremental   # regenerates on the next build; always safe
+cargo sweep --maxsize 3GB         # keeps the newest artifacts, drops the oldest
+cargo clean                       # full reset; about two minutes to rebuild
+```
+
+Two things to get right:
+
+- Do not reach for `cargo sweep --installed` as routine cleanup. It keeps only artifacts built by the currently installed rustc, so right after a `rustup update` it discards every artifact rather than just the stale ones, turning a trim into a full rebuild.
+- Always report how much was reclaimed. Never delete build output silently.
+
+The override itself is a build-profile change with no observable effect for users, so it
+does not belong in `CHANGELOG.md`.
+
 ## Architecture
 
 Three crates: `core` (`capture-core`, library), `daemon`
