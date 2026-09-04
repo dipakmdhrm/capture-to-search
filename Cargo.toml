@@ -7,7 +7,7 @@ members = ["core", "daemon", "gui"]
 default-members = ["core", "daemon"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 license = "MIT"
 authors = ["dipakmdhrm <dipakmdhrm@gmail.com>"]
