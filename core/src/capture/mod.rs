@@ -17,7 +17,8 @@
 //! Asking for one means setting `interactive`, which hands over to the
 //! desktop's own capture UI - and what that UI offers is the desktop's choice.
 //! GNOME's opens in area-select; KDE's offers only active window, current
-//! screen and full screen. A portal that cannot select a region does not fail:
+//! screen and full screen; Cinnamon's accepts `interactive` and ignores it,
+//! showing no picker at all. A portal that cannot select a region does not fail:
 //! it returns the whole screen and reports success, so the fallback chain never
 //! runs and the user silently gets their entire desktop uploaded. Selection is
 //! therefore mode-aware - see [`candidates`].
@@ -162,8 +163,10 @@ pub enum Backend {
 /// costs a user their region selection with no error; being wrong about an
 /// unlisted one costs nothing, since the portal stays in the chain as the
 /// fallback. Add a desktop here only once its picker is known to offer a
-/// region - verified on GNOME, and disproved on KDE (Plasma 6 / portal
-/// version 2 offers active window, current screen and full screen only).
+/// region. Verified on GNOME. Disproved on two desktops, in two different ways:
+/// KDE (portal version 2) shows a dialog offering active window, current screen
+/// and full screen only, while Cinnamon (also version 2) accepts `interactive`,
+/// shows no picker whatsoever, and returns a full screen.
 const PORTAL_REGION_DESKTOPS: &[&str] = &["gnome"];
 
 impl Backend {
@@ -750,6 +753,11 @@ mod tests {
         // Guessing that an unlisted portal can select a region fails silently;
         // guessing that it cannot costs nothing, because it stays in the chain
         // as the fallback. Assert both halves of that trade.
+        //
+        // X-Cinnamon is the measured case rather than a hypothetical: on Linux
+        // Mint the portal reports Screenshot version 2, accepts `interactive`,
+        // shows no picker at all and hands back a full screen. Mint ships
+        // gnome-screenshot, so demoting the portal is what reaches `-a` there.
         let mut env = env_with(SessionType::X11);
         env.desktop = "X-Cinnamon".into();
         assert!(!Backend::Portal.supports_region(&env));

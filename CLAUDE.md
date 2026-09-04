@@ -198,7 +198,8 @@ failure); `flow::run_standalone` is the no-daemon one-shot path. Both share
 - **Backend selection is mode-aware, and the portal is not region-capable
   everywhere.** The Screenshot portal has no region flag; `interactive` hands
   over to the desktop's own UI, which decides what it offers. GNOME's opens in
-  area-select, KDE's offers only window / current screen / full screen. Asking a
+  area-select, KDE's offers only window / current screen / full screen, and
+  Cinnamon's shows no picker at all. Asking a
   portal that cannot do regions for one *succeeds* and returns the whole screen,
   so the failure is silent and the fallback chain never runs.
   `capture::candidates` therefore moves backends that cannot select a region to

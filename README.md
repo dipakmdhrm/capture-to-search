@@ -143,11 +143,13 @@ region, backends that cannot select one are tried last.
 > of the screen means setting `interactive`, which hands over to the desktop's
 > own capture UI - and what that UI offers is the desktop's choice. GNOME's
 > opens in area-select; KDE's offers only active window, current screen and full
-> screen. A portal that cannot select a region does not fail: it returns the
-> whole screen and reports success, so nothing downstream can tell. For a region
-> capture, backends that cannot select one therefore move to the back of the
-> chain - on KDE that reaches `spectacle -r` - while the portal stays in the
-> chain as the fallback for desktops where nothing else is installed.
+> screen; Cinnamon's ignores the request and shows no picker at all. A portal
+> that cannot select a region does not fail: it returns the whole screen and
+> reports success, so nothing downstream can tell. For a region capture,
+> backends that cannot select one therefore move to the back of the chain - on
+> KDE that reaches `spectacle -r`, on Cinnamon `gnome-screenshot -a` - while the
+> portal stays in the chain as the fallback for desktops where nothing else is
+> installed.
 
 > **The XWayland trap.** `DISPLAY` is set even in a Wayland session. X11-only
 > tools are therefore gated on `XDG_SESSION_TYPE`, never on `DISPLAY` - they are
