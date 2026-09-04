@@ -6,6 +6,37 @@ pre-release (`0.1.0`).
 
 ## Unreleased
 
+### Fixed
+
+- **Capturing part of the screen now works on KDE and Cinnamon**, and on any
+  other desktop whose screenshot portal cannot select a region. The portal has
+  no region flag - asking for one means handing over to the desktop's own
+  capture UI, and KDE's offers only active window, current screen and full
+  screen, while Cinnamon's shows no picker at all. Neither failed when asked for
+  a region; both returned the whole screen and reported success, so every
+  capture on Plasma and on Linux Mint silently uploaded the entire desktop.
+  Backend selection is now aware of what was asked for: a region capture prefers
+  a backend that can actually select one (`spectacle -r` on KDE,
+  `gnome-screenshot -a` on Mint), while a full-screen capture still tries the
+  portal first. The portal remains in the
+  chain as the fallback, so a desktop with nothing else installed still
+  captures. GNOME is unaffected - its portal opens in area-select and stays the
+  first choice there.
+
+- **`doctor` now reports the backend for each kind of capture separately**, and
+  marks an available backend that cannot select a region with the reason. On
+  KDE it reads `the KDE Screenshot portal offers no region selection`, followed
+  by `region capture  spectacle` and `full screen  portal`. Previously it
+  printed one selected backend, which was the right answer for a full screen
+  and the wrong one for the region the user had actually asked for.
+
+### Changed
+
+- The test suite is now **120 tests**, adding coverage for region-capable
+  backend selection: that the portal is skipped for a region where its picker
+  has none, kept first for a full screen everywhere, kept first for a region on
+  GNOME, and never dropped from the chain by the reordering.
+
 ## 0.1.1
 
 ### Added

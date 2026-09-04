@@ -12,6 +12,16 @@
 //! detected as available, run without error, and return a black or
 //! XWayland-only image. Silent wrong output, not a crash. X11-only backends are
 //! therefore gated on `XDG_SESSION_TYPE`, never on `DISPLAY`.
+//!
+//! **The region trap.** The Screenshot portal has no "capture a region" flag.
+//! Asking for one means setting `interactive`, which hands over to the
+//! desktop's own capture UI - and what that UI offers is the desktop's choice.
+//! GNOME's opens in area-select; KDE's offers only active window, current
+//! screen and full screen; Cinnamon's accepts `interactive` and ignores it,
+//! showing no picker at all. A portal that cannot select a region does not fail:
+//! it returns the whole screen and reports success, so the fallback chain never
+//! runs and the user silently gets their entire desktop uploaded. Selection is
+//! therefore mode-aware - see [`candidates`].
 
 pub mod portal;
 
@@ -78,6 +88,17 @@ impl SessionEnv {
     pub fn is_wayland(&self) -> bool {
         self.session_type == SessionType::Wayland
     }
+
+    /// Does `XDG_CURRENT_DESKTOP` name this desktop?
+    ///
+    /// The variable is a colon-separated list and distributions prepend their
+    /// own entry ("ubuntu:GNOME"), so comparing the whole value gets the answer
+    /// wrong on exactly the systems bug reports come from.
+    pub fn is_desktop(&self, name: &str) -> bool {
+        self.desktop
+            .split(':')
+            .any(|part| part.trim().eq_ignore_ascii_case(name))
+    }
 }
 
 /// The outcome of probing one backend, carrying *why* it was rejected.
@@ -134,6 +155,20 @@ pub enum Backend {
     Import,
 }
 
+/// Desktops whose Screenshot portal offers a region selection.
+///
+/// An allowlist rather than a denylist, because the protocol gives us no way to
+/// ask and guessing wrong is silent: a portal without a region option returns
+/// the whole screen and reports success. Being wrong about a listed desktop
+/// costs a user their region selection with no error; being wrong about an
+/// unlisted one costs nothing, since the portal stays in the chain as the
+/// fallback. Add a desktop here only once its picker is known to offer a
+/// region. Verified on GNOME. Disproved on two desktops, in two different ways:
+/// KDE (portal version 2) shows a dialog offering active window, current screen
+/// and full screen only, while Cinnamon (also version 2) accepts `interactive`,
+/// shows no picker whatsoever, and returns a full screen.
+const PORTAL_REGION_DESKTOPS: &[&str] = &["gnome"];
+
 impl Backend {
     /// Probe order: portal first, then compositor-native tools, then generic
     /// X11 tools as a last resort.
@@ -175,6 +210,45 @@ impl Backend {
     /// Whether this backend can only work on Wayland (wlroots screencopy).
     fn wayland_only(&self) -> bool {
         matches!(self, Self::GrimSlurp)
+    }
+
+    /// Can this backend select part of the screen on this session?
+    ///
+    /// The answer has to be known *before* the capture runs, because a backend
+    /// that cannot still succeeds: it returns the whole screen with a zero exit
+    /// status. There is nothing in the result to test afterwards.
+    pub fn supports_region(&self, env: &SessionEnv) -> bool {
+        match self {
+            Self::Portal => PORTAL_REGION_DESKTOPS.iter().any(|d| env.is_desktop(d)),
+            // grim crops to a geometry slurp printed; with no slurp there is
+            // nothing to crop to and grim captures the whole output.
+            Self::GrimSlurp => which("slurp").is_some(),
+            // The rest take a region flag, asserted in `area_mode_actually_
+            // requests_a_region`.
+            _ => true,
+        }
+    }
+
+    /// Why this backend cannot select a region here, if it cannot.
+    ///
+    /// `doctor` prints it verbatim next to the backend: a user whose capture
+    /// came back as a full screen is looking for exactly this sentence.
+    pub fn region_limitation(&self, env: &SessionEnv) -> Option<String> {
+        if self.supports_region(env) {
+            return None;
+        }
+        Some(match self {
+            Self::Portal => format!(
+                "the {} Screenshot portal offers no region selection",
+                if env.desktop.is_empty() {
+                    "desktop's"
+                } else {
+                    env.desktop.as_str()
+                }
+            ),
+            Self::GrimSlurp => "slurp not on PATH, so grim cannot crop to a region".to_string(),
+            other => format!("{} cannot select a region", other.name()),
+        })
     }
 
     pub async fn probe(&self, env: &SessionEnv) -> Probe {
@@ -391,9 +465,30 @@ impl Backend {
     }
 }
 
+/// The probe order for `mode`: backends that can satisfy it first.
+///
+/// Pure, and deliberately separate from probing, so the ordering can be
+/// asserted without a session bus or a desktop. For a full-screen capture this
+/// is [`Backend::ALL`] unchanged - the portal must stay first, since under a
+/// strict Wayland compositor it is the only backend that can capture at all.
+/// For a region it moves backends that cannot select one to the back, which is
+/// what routes KDE to `spectacle -r` instead of a portal that would hand back
+/// the whole screen. Nothing is dropped: a desktop whose only usable backend
+/// cannot do regions still captures, it just captures everything.
+pub fn candidates(env: &SessionEnv, mode: CaptureMode) -> Vec<Backend> {
+    if !mode.is_area() {
+        return Backend::ALL.to_vec();
+    }
+    let (region, rest): (Vec<Backend>, Vec<Backend>) = Backend::ALL
+        .iter()
+        .copied()
+        .partition(|b| b.supports_region(env));
+    region.into_iter().chain(rest).collect()
+}
+
 /// Pick a backend: the pinned one if configured and usable, else the first
-/// available in preference order.
-pub async fn select(env: &SessionEnv, pinned: Option<&str>) -> Result<Backend> {
+/// available in preference order for `mode`.
+pub async fn select(env: &SessionEnv, pinned: Option<&str>, mode: CaptureMode) -> Result<Backend> {
     if let Some(name) = pinned {
         let backend = Backend::ALL
             .iter()
@@ -401,16 +496,28 @@ pub async fn select(env: &SessionEnv, pinned: Option<&str>) -> Result<Backend> {
             .copied()
             .ok_or_else(|| anyhow!("unknown capture backend '{name}' in config"))?;
         return match backend.probe(env).await {
-            Probe::Available => Ok(backend),
+            Probe::Available => {
+                // A pin disables fallback, so obey it - but say why the result
+                // is going to be a full screen instead of the region asked for.
+                if mode.is_area() {
+                    if let Some(why) = backend.region_limitation(env) {
+                        tracing::warn!(
+                            "pinned backend '{name}' cannot select a region ({why}); \
+                             capturing the whole screen"
+                        );
+                    }
+                }
+                Ok(backend)
+            }
             Probe::Unavailable(why) | Probe::Disabled(why) => {
                 Err(anyhow!("pinned backend '{name}' is unusable: {why}"))
             }
         };
     }
-    for backend in Backend::ALL {
+    for backend in candidates(env, mode) {
         if backend.probe(env).await.is_available() {
-            tracing::info!("capture backend: {}", backend.name());
-            return Ok(*backend);
+            tracing::info!("capture backend: {} ({})", backend.name(), mode.as_str());
+            return Ok(backend);
         }
     }
     Err(anyhow!(
@@ -435,19 +542,21 @@ pub async fn capture(
     mode: CaptureMode,
 ) -> std::result::Result<(Backend, Vec<u8>), CaptureError> {
     if pinned.is_some() {
-        let backend = select(env, pinned).await.map_err(CaptureError::Failed)?;
+        let backend = select(env, pinned, mode)
+            .await
+            .map_err(CaptureError::Failed)?;
         let bytes = backend.capture(mode).await?;
         return Ok((backend, bytes));
     }
 
     let mut last: Option<CaptureError> = None;
-    for backend in Backend::ALL {
+    for backend in candidates(env, mode) {
         if !backend.probe(env).await.is_available() {
             continue;
         }
         tracing::info!("capturing via {} ({})", backend.name(), mode.as_str());
         match backend.capture(mode).await {
-            Ok(bytes) => return Ok((*backend, bytes)),
+            Ok(bytes) => return Ok((backend, bytes)),
             Err(CaptureError::Cancelled) => return Err(CaptureError::Cancelled),
             Err(e) => {
                 tracing::warn!(
@@ -466,18 +575,31 @@ pub async fn capture(
     }))
 }
 
-/// Probe every backend, for `doctor`. Returns them in preference order along
-/// with the selected one.
-pub async fn report(
-    env: &SessionEnv,
-    pinned: Option<&str>,
-) -> (Vec<(Backend, Probe)>, Option<Backend>) {
+/// What `doctor` reports: every probe, plus the backend each kind of capture
+/// would actually use.
+///
+/// Two selections rather than one, because they legitimately differ: on KDE the
+/// portal is the right answer for a full screen and the wrong one for a region.
+/// Collapsing them into a single "selected" line would hide precisely what a
+/// user with a region problem came to find out.
+pub struct Report {
+    pub probes: Vec<(Backend, Probe)>,
+    pub region: Option<Backend>,
+    pub screen: Option<Backend>,
+}
+
+/// Probe every backend, for `doctor`. Probes come back in [`Backend::ALL`]
+/// order, matching the table in the README.
+pub async fn report(env: &SessionEnv, pinned: Option<&str>) -> Report {
     let mut probes: Vec<(Backend, Probe)> = Vec::with_capacity(Backend::ALL.len());
     for backend in Backend::ALL {
         probes.push((*backend, backend.probe(env).await));
     }
-    let selected = select(env, pinned).await.ok();
-    (probes, selected)
+    Report {
+        probes,
+        region: select(env, pinned, CaptureMode::Area).await.ok(),
+        screen: select(env, pinned, CaptureMode::Screen).await.ok(),
+    }
 }
 
 // --- process helpers -------------------------------------------------------
@@ -539,6 +661,17 @@ mod tests {
         }
     }
 
+    /// Manjaro KDE in the configuration this was reported from: Wayland,
+    /// XWayland running, portal present.
+    fn kde_wayland() -> SessionEnv {
+        SessionEnv {
+            session_type: SessionType::Wayland,
+            desktop: "KDE".into(),
+            display: Some(":1".into()),
+            wayland_display: Some("wayland-0".into()),
+        }
+    }
+
     #[tokio::test]
     async fn x11_tools_are_disabled_on_wayland_even_with_display_set() {
         // The XWayland trap: DISPLAY is set, the binary may well be installed,
@@ -573,6 +706,114 @@ mod tests {
         // The portal is the only backend that works under a strict Wayland
         // compositor, so it must never be ordered behind a CLI tool.
         assert_eq!(Backend::ALL[0], Backend::Portal);
+    }
+
+    #[test]
+    fn portal_is_not_used_for_a_region_where_its_picker_has_none() {
+        // KDE's Screenshot portal offers active window, current screen and full
+        // screen - no region. It does not fail when asked for one: it returns
+        // the whole screen and reports success, so the fallback chain never
+        // runs and the user's entire desktop is uploaded with nothing logged.
+        let kde = kde_wayland();
+        assert!(!Backend::Portal.supports_region(&kde));
+        let order = candidates(&kde, CaptureMode::Area);
+        let portal = order.iter().position(|b| *b == Backend::Portal).unwrap();
+        let spectacle = order.iter().position(|b| *b == Backend::Spectacle).unwrap();
+        assert!(
+            spectacle < portal,
+            "spectacle -r must be preferred over the portal on KDE, got {order:?}"
+        );
+    }
+
+    #[test]
+    fn portal_keeps_the_region_on_desktops_where_it_works() {
+        // GNOME's portal opens in area-select. Nothing in the region rule may
+        // push it behind a CLI tool there.
+        let gnome = env_with(SessionType::Wayland);
+        assert!(Backend::Portal.supports_region(&gnome));
+        assert_eq!(candidates(&gnome, CaptureMode::Area)[0], Backend::Portal);
+    }
+
+    #[test]
+    fn portal_still_leads_for_a_full_screen_capture() {
+        // Under a strict Wayland compositor the portal is the only backend that
+        // can capture at all; the region rule must not cost a full-screen
+        // request that guarantee.
+        for env in [
+            kde_wayland(),
+            env_with(SessionType::Wayland),
+            env_with(SessionType::X11),
+        ] {
+            assert_eq!(candidates(&env, CaptureMode::Screen)[0], Backend::Portal);
+        }
+    }
+
+    #[test]
+    fn an_unknown_desktop_does_not_get_the_benefit_of_the_doubt() {
+        // Guessing that an unlisted portal can select a region fails silently;
+        // guessing that it cannot costs nothing, because it stays in the chain
+        // as the fallback. Assert both halves of that trade.
+        //
+        // X-Cinnamon is the measured case rather than a hypothetical: on Linux
+        // Mint the portal reports Screenshot version 2, accepts `interactive`,
+        // shows no picker at all and hands back a full screen. Mint ships
+        // gnome-screenshot, so demoting the portal is what reaches `-a` there.
+        let mut env = env_with(SessionType::X11);
+        env.desktop = "X-Cinnamon".into();
+        assert!(!Backend::Portal.supports_region(&env));
+        let order = candidates(&env, CaptureMode::Area);
+        let portal = order.iter().position(|b| *b == Backend::Portal).unwrap();
+        let gnome_screenshot = order
+            .iter()
+            .position(|b| *b == Backend::GnomeScreenshot)
+            .unwrap();
+        assert!(gnome_screenshot < portal, "got {order:?}");
+    }
+
+    #[test]
+    fn reordering_for_a_region_never_drops_a_backend() {
+        // On a desktop with exactly one usable tool, losing it to a partition
+        // bug means no capture at all rather than a worse capture.
+        let mut all: Vec<&str> = Backend::ALL.iter().map(|b| b.name()).collect();
+        all.sort_unstable();
+        for env in [kde_wayland(), env_with(SessionType::X11)] {
+            for mode in [
+                CaptureMode::Interactive,
+                CaptureMode::Area,
+                CaptureMode::Screen,
+            ] {
+                let mut got: Vec<&str> = candidates(&env, mode).iter().map(|b| b.name()).collect();
+                got.sort_unstable();
+                assert_eq!(got, all, "{:?} on {}", mode, env.desktop);
+            }
+        }
+    }
+
+    #[test]
+    fn doctor_can_say_why_no_region_was_offered() {
+        // "I asked for part of the screen and got all of it" is unanswerable
+        // without this sentence, since nothing else about the capture looks
+        // wrong.
+        let why = Backend::Portal
+            .region_limitation(&kde_wayland())
+            .expect("the KDE portal cannot select a region");
+        assert!(why.contains("KDE"), "got: {why}");
+        assert!(Backend::Portal
+            .region_limitation(&env_with(SessionType::Wayland))
+            .is_none());
+    }
+
+    #[test]
+    fn distribution_prefixed_desktop_names_still_match() {
+        // XDG_CURRENT_DESKTOP is a colon-separated list and distributions
+        // prepend their own entry, so an equality test would fail on Ubuntu -
+        // the most common GNOME install there is.
+        let mut env = env_with(SessionType::Wayland);
+        env.desktop = "ubuntu:GNOME".into();
+        assert!(env.is_desktop("gnome"), "case and list handling");
+        assert!(Backend::Portal.supports_region(&env));
+        env.desktop = "KDE".into();
+        assert!(!env.is_desktop("gnome"));
     }
 
     #[tokio::test]
@@ -703,7 +944,7 @@ mod tests {
     #[tokio::test]
     async fn unknown_pinned_backend_is_an_error() {
         let env = env_with(SessionType::X11);
-        let err = select(&env, Some("nonexistent"))
+        let err = select(&env, Some("nonexistent"), CaptureMode::Area)
             .await
             .unwrap_err()
             .to_string();
@@ -715,7 +956,10 @@ mod tests {
         // Pinning an X11 tool on Wayland must fail loudly, not fall through to
         // another backend the user didn't ask for.
         let env = env_with(SessionType::Wayland);
-        let err = select(&env, Some("scrot")).await.unwrap_err().to_string();
+        let err = select(&env, Some("scrot"), CaptureMode::Area)
+            .await
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("unusable"), "got: {err}");
         assert!(err.contains("X11-only"), "got: {err}");
     }

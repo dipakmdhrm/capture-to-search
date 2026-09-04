@@ -89,7 +89,8 @@ in-process - a hotkey works even where the tray never came up.
 capture-to-searchd doctor
 ```
 
-It prints the selected capture backend and, for every other one, the reason it
+It prints the backend selected for a region and for a full-screen capture -
+which are allowed to differ - and, for every other one, the reason it
 was rejected - along with tray, browser, autostart, daemon, and network state.
 Include that output in any bug report.
 
@@ -105,6 +106,10 @@ keep_captures = false      # keep a copy of each capture
 notify_on_error = true     # desktop notification when a capture fails
 lens_endpoint = "https://lens.google.com/v3/upload"
 ```
+
+Pinning `capture_backend` disables the fallback chain, including the region
+rule below: pin a backend that cannot select part of the screen and every
+capture returns the whole screen. The daemon logs a warning when that happens.
 
 `lens_endpoint` is exposed because it is what the Lens web client posts to, not
 a documented public API. It becomes the staged page's form action. If Google
@@ -131,7 +136,20 @@ Capture probes an ordered list of backends and uses the first that works:
 | 7 | `maim` / `scrot` / `import` | generic X11 fallbacks |
 
 The portal is first because it is the only backend that works under a strict
-Wayland compositor.
+Wayland compositor. That order is the one used for a full-screen capture; for a
+region, backends that cannot select one are tried last.
+
+> **The region trap.** The Screenshot portal has no region flag. Asking for part
+> of the screen means setting `interactive`, which hands over to the desktop's
+> own capture UI - and what that UI offers is the desktop's choice. GNOME's
+> opens in area-select; KDE's offers only active window, current screen and full
+> screen; Cinnamon's ignores the request and shows no picker at all. A portal
+> that cannot select a region does not fail: it returns the whole screen and
+> reports success, so nothing downstream can tell. For a region capture,
+> backends that cannot select one therefore move to the back of the chain - on
+> KDE that reaches `spectacle -r`, on Cinnamon `gnome-screenshot -a` - while the
+> portal stays in the chain as the fallback for desktops where nothing else is
+> installed.
 
 > **The XWayland trap.** `DISPLAY` is set even in a Wayland session. X11-only
 > tools are therefore gated on `XDG_SESSION_TYPE`, never on `DISPLAY` - they are
