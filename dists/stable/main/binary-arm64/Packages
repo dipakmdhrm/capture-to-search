@@ -1,5 +1,5 @@
 Package: capture-to-search
-Version: 0.1.1
+Version: 0.1.2
 Architecture: arm64
 Depends: libgtk-4-1, libadwaita-1-0, curl, gnupg
 Recommends: xdg-desktop-portal, xdg-utils
@@ -8,11 +8,11 @@ Maintainer: dipakmdhrm <dipakmdhrm@gmail.com>
 Homepage: https://github.com/dipakmdhrm/capture-to-search
 Priority: optional
 Section: graphics
-Filename: pool/main/c/capture-to-search/capture-to-search_0.1.1_arm64.deb
-Size: 3840906
-SHA256: e5490f7b818d965d37dab2483adbfc93154a9c4a58ada18732621315e6c9d2c7
-SHA1: 8fa12157038eb87e3d080fcb9e39c65091cfa61f
-MD5sum: d4cd0bd4809fd48bb3c893e7526ffd9c
+Filename: pool/main/c/capture-to-search/capture-to-search_0.1.2_arm64.deb
+Size: 3836334
+SHA256: b2d41e0d51392474497e1c5388c845d3c16c706e18404b9506994905f5041250
+SHA1: f537b47b7bd40b7723b33e84a4f53f5a7e4ae62a
+MD5sum: bc6acc2d6f581035bb22c2b8ecd37d3c
 Description: Search any part of your screen with Google Lens
  Capture to Search sits in the system tray. Press Capture, drag out a region of
  the screen, and your browser opens on the Google Lens results for whatever you
