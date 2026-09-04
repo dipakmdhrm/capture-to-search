@@ -57,3 +57,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [profile.release]
 lto = "thin"
 strip = true
+
+# Dependencies build without debuginfo; workspace crates keep theirs in full.
+# Line coverage for our own sources is identical either way, but the daemon
+# binary drops from 198 MB to 69 MB, the GUI from 175 MB to 20 MB, and a full
+# check cycle from 3.4 GB to 1.8 GB. Comment this out temporarily if you ever
+# need to step into a dependency's frames.
+[profile.dev.package."*"]
+debug = false
