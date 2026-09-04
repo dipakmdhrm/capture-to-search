@@ -86,7 +86,7 @@ inaccurate. The things that drift most easily in this repo:
 - the config block under **Configuration** and the fields on `Config`
 - the command list under **Usage** and what `main.rs` actually parses
 - the invariants and IPC notes here, when a message, guard, or fallback changes
-- the test count quoted in `CHANGELOG.md` (currently 92), which every added test
+- the test count quoted in `CHANGELOG.md` (currently 120), which every added test
   invalidates: `cargo test --workspace` prints the real number
 
 Doc comments count as documentation. The module headers carry this codebase's
@@ -195,6 +195,17 @@ failure); `flow::run_standalone` is the no-daemon one-shot path. Both share
   `DISPLAY` is set under Wayland too (XWayland), so a `DISPLAY` check makes
   `scrot`/`maim`/`import` look available and silently return a black image.
   `Backend::x11_only`/`wayland_only` encode this; there is a regression test.
+- **Backend selection is mode-aware, and the portal is not region-capable
+  everywhere.** The Screenshot portal has no region flag; `interactive` hands
+  over to the desktop's own UI, which decides what it offers. GNOME's opens in
+  area-select, KDE's offers only window / current screen / full screen. Asking a
+  portal that cannot do regions for one *succeeds* and returns the whole screen,
+  so the failure is silent and the fallback chain never runs.
+  `capture::candidates` therefore moves backends that cannot select a region to
+  the back for area modes, and `PORTAL_REGION_DESKTOPS` is an allowlist: an
+  unlisted desktop is assumed unable, since being wrong that way only costs a
+  nicer picker while being wrong the other way costs the user their region. Add
+  a desktop to it only with evidence from its actual picker.
 - **A pinned `capture_backend` disables fallback.** A pin is an explicit
   instruction not to look elsewhere, so it errors rather than quietly using the
   portal.

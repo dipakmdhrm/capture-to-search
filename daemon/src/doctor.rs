@@ -7,7 +7,7 @@
 
 use std::time::Duration;
 
-use capture_core::capture::{self, Probe, SessionEnv};
+use capture_core::capture::{self, Backend, Probe, SessionEnv};
 use capture_core::{autostart, paths, Config, APP_SLUG};
 
 use crate::single_instance;
@@ -46,13 +46,18 @@ pub async fn run() -> anyhow::Result<()> {
     }
 
     section("Capture backends");
-    let (probes, selected) = capture::report(&env, cfg.capture_backend.as_deref()).await;
-    for (backend, probe) in &probes {
-        let is_selected = selected.as_ref() == Some(backend);
+    let report = capture::report(&env, cfg.capture_backend.as_deref()).await;
+    for (backend, probe) in &report.probes {
+        let is_selected = report.region.as_ref() == Some(backend);
         let marker = if is_selected { ">" } else { " " };
         let (state, detail) = match probe {
             Probe::Available if is_selected => ("SELECTED", String::new()),
-            Probe::Available => ("available", String::new()),
+            // An available backend that cannot select a region is the whole
+            // reason this report exists: it succeeds and returns a full screen.
+            Probe::Available => (
+                "available",
+                backend.region_limitation(&env).unwrap_or_default(),
+            ),
             Probe::Unavailable(why) => ("unavailable", why.clone()),
             Probe::Disabled(why) => ("disabled", why.clone()),
         };
@@ -65,10 +70,15 @@ pub async fn run() -> anyhow::Result<()> {
         );
         println!("{}", line.trim_end());
     }
-    if selected.is_none() {
+    if report.region.is_none() && report.screen.is_none() {
         println!("\n  No usable capture backend. Install one of the tools above,");
         println!("  or xdg-desktop-portal with a backend for your desktop.");
     }
+    // The two can differ: on KDE the portal is right for a full screen and
+    // wrong for a region, and only this line makes that visible.
+    println!();
+    row("region capture", &backend_name(report.region));
+    row("full screen", &backend_name(report.screen));
     if let Some(pinned) = &cfg.capture_backend {
         println!("\n  (pinned via config: capture_backend = \"{pinned}\")");
     }
@@ -148,6 +158,12 @@ pub async fn run() -> anyhow::Result<()> {
     println!("Bind a desktop hotkey to:  {APP_SLUG}d capture --area");
     println!();
     Ok(())
+}
+
+fn backend_name(backend: Option<Backend>) -> String {
+    backend
+        .map(|b| b.name().to_string())
+        .unwrap_or_else(|| "none".into())
 }
 
 fn section(title: &str) {
